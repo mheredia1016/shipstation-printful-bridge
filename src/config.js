@@ -32,6 +32,7 @@ export function getConfig({ validateSecrets = true } = {}) {
     printfulToken: validateSecrets ? required('PRINTFUL_API_TOKEN') : process.env.PRINTFUL_API_TOKEN,
     printfulMode: mode,
     printfulOrderSuffix: process.env.PRINTFUL_ORDER_SUFFIX || '',
+    printfulExternalIdPrefix: process.env.PRINTFUL_EXTERNAL_ID_PREFIX || 'SS',
     printfulPlaceholderSyncVariantId: process.env.PRINTFUL_PLACEHOLDER_SYNC_VARIANT_ID || '',
     printfulUseCustomItems:
       String(process.env.PRINTFUL_USE_CUSTOM_ITEMS || 'false').toLowerCase() === 'true',
@@ -42,7 +43,7 @@ export function getConfig({ validateSecrets = true } = {}) {
     printfulCustomFileId: process.env.PRINTFUL_CUSTOM_FILE_ID || '',
     printfulUseProductImageAsPrintFile:
       String(process.env.PRINTFUL_USE_PRODUCT_IMAGE_AS_PRINT_FILE || 'false').toLowerCase() === 'true',
-    printfulReviewPrefix: process.env.PRINTFUL_REVIEW_PREFIX || '⚠ REVIEW REQUIRED - ',
+    printfulReviewPrefix: process.env.PRINTFUL_REVIEW_PREFIX || '',
     printfulSkuSource: (process.env.PRINTFUL_SKU_SOURCE || 'old_sku').trim().toLowerCase(),
     printfulPrefixTitleWithSku:
       String(process.env.PRINTFUL_PREFIX_TITLE_WITH_SKU || 'true').toLowerCase() === 'true',

@@ -31,6 +31,7 @@ app.get('/api/status', async (_req, res) => {
     mode: config.printfulMode,
     customFieldValue: config.customFieldValue,
     orderSuffix: config.printfulOrderSuffix,
+    externalIdPrefix: config.printfulExternalIdPrefix,
     customItemMode: config.printfulUseCustomItems,
     customCatalogVariantId: config.printfulCustomCatalogVariantId || null,
     customProductId: config.printfulCustomProductId,
@@ -81,6 +82,7 @@ app.listen(config.port, () => {
   console.log(`ShipStation → Printful bridge listening on port ${config.port}`);
   console.log(`Mode: ${config.printfulMode}`);
   console.log(`Matching Custom Field 1: ${config.customFieldValue}`);
+  console.log(`Printful external ID prefix: ${config.printfulExternalIdPrefix}`);
   console.log(`Printful order suffix: ${config.printfulOrderSuffix || '(none)'}`);
   console.log(`Printful item mode: ${config.printfulUseCustomItems ? 'custom item' : 'synced placeholder'}`);
 

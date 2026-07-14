@@ -1,4 +1,4 @@
-# ShipStation → Printful Bridge v2.5
+# ShipStation → Printful Bridge v2.6
 
 This version imports ShipStation orders into Printful as unconfirmed drafts.
 
@@ -268,3 +268,48 @@ Size: S
 ```
 
 Important: the Shopify mockup is intentionally being sent as the actual default print file in this mode. Do not confirm an order until the correct production artwork replaces it.
+
+
+## v2.6 Printful-safe external IDs
+
+Printful rejected IDs such as:
+
+```text
+AEW166919-1429224596-COLORIMAGETEST1
+```
+
+Version 2.6 now creates short, safe IDs using the unique ShipStation order ID:
+
+```text
+SS1429224596T2
+```
+
+Recommended Railway variables:
+
+```env
+PRINTFUL_EXTERNAL_ID_PREFIX=SS
+PRINTFUL_ORDER_SUFFIX=T2
+STATE_FILE=./data/state-t2.json
+PRINTFUL_MODE=draft
+```
+
+The original ShipStation order number remains visible in:
+
+```text
+Gift subject: ShipStation Order AEW166919
+Gift message: ShipStation Order Number: AEW166919
+```
+
+The item title remains clean:
+
+```text
+AEW1198 • Young Bucks - Skull Kick T-Shirt - Small
+```
+
+Use:
+
+```env
+PRINTFUL_REVIEW_PREFIX=
+```
+
+to avoid adding warning text to the visible product title.

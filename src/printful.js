@@ -222,8 +222,16 @@ function buildShipStationNotes(order) {
 export async function buildPrintfulOrder(shipstationOrder, config) {
   const address = shipstationOrder.shipTo || {};
   const originalOrderNumber = String(shipstationOrder.orderNumber || shipstationOrder.orderId);
-  const uniqueExternalId =
-    `${originalOrderNumber}-${shipstationOrder.orderId}${config.printfulOrderSuffix}`;
+  const safeSuffix = String(config.printfulOrderSuffix || '')
+    .replace(/[^A-Za-z0-9_-]/g, '')
+    .slice(0, 20);
+  const safePrefix = String(config.printfulExternalIdPrefix || 'SS')
+    .replace(/[^A-Za-z0-9_-]/g, '')
+    .slice(0, 10);
+
+  // Printful can reject long or complex external IDs.
+  // Use the unique numeric ShipStation order ID with a short optional suffix.
+  const uniqueExternalId = `${safePrefix}${shipstationOrder.orderId}${safeSuffix}`;
 
   const realItems = (shipstationOrder.items || []).filter(isRealProductItem);
   if (realItems.length === 0) {
