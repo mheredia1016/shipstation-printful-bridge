@@ -173,6 +173,94 @@ async function resolveCatalogVariantId(item, config) {
   return Number(match.id);
 }
 
+
+let fileLibraryCache = { loadedAt: 0, byFilename: new Map() };
+
+function normalizeFilename(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+async function loadFileLibrary(config, { force = false } = {}) {
+  const oneHour = 60 * 60 * 1000;
+  if (!force && fileLibraryCache.byFilename.size &&
+      Date.now() - fileLibraryCache.loadedAt < oneHour) {
+    return fileLibraryCache.byFilename;
+  }
+
+  const byFilename = new Map();
+
+  for (let page = 0; page < config.printfulFileMaxPages; page += 1) {
+    const offset = page * config.printfulFilePageSize;
+    const body = await request(
+      `/files?limit=${config.printfulFilePageSize}&offset=${offset}`,
+      config
+    );
+    const files = Array.isArray(body.result) ? body.result : [];
+
+    for (const file of files) {
+      const filename = normalizeFilename(file.filename);
+      if (!filename) continue;
+      const existing = byFilename.get(filename);
+      if (!existing || (existing.status !== 'ok' && file.status === 'ok')) {
+        byFilename.set(filename, file);
+      }
+    }
+
+    const total = Number(body?.paging?.total || body?.extra?.paging?.total || 0);
+    if (files.length < config.printfulFilePageSize ||
+        (total && offset + files.length >= total)) break;
+
+    if (config.printfulRequestDelayMs > 0) {
+      await sleep(config.printfulRequestDelayMs);
+    }
+  }
+
+  fileLibraryCache = { loadedAt: Date.now(), byFilename };
+  console.log(`Loaded ${byFilename.size} Printful file-library filename(s).`);
+  return byFilename;
+}
+
+async function resolveArtworkFile(item, config) {
+  const oldSku = getOldSku(item);
+  const fallbackSku = String(item.sku || '').trim();
+  const baseSku = oldSku || fallbackSku;
+
+  if (!baseSku) {
+    throw new Error(`No old SKU or current SKU found for ${item.name || 'item'}.`);
+  }
+
+  const rawExt = String(config.printfulArtworkExtension || '.png');
+  const extension = rawExt.startsWith('.') ? rawExt : `.${rawExt}`;
+  const expectedFilename = normalizeFilename(`${baseSku}${extension}`);
+
+  let library = await loadFileLibrary(config);
+  let file = library.get(expectedFilename);
+
+  if (!file) {
+    library = await loadFileLibrary(config, { force: true });
+    file = library.get(expectedFilename);
+  }
+
+  if (!file) {
+    if (config.printfulMissingArtworkBehavior === 'mockup' && item.imageUrl) {
+      return { type: 'url', url: String(item.imageUrl).trim() };
+    }
+    if (config.printfulMissingArtworkBehavior === 'placeholder' &&
+        config.printfulCustomFileId) {
+      return { type: 'id', id: Number(config.printfulCustomFileId) };
+    }
+    throw new Error(`Printful artwork file not found: ${expectedFilename}`);
+  }
+
+  if (file.status && file.status !== 'ok') {
+    throw new Error(
+      `Printful artwork ${expectedFilename} has status ${file.status}.`
+    );
+  }
+
+  return { type: 'id', id: Number(file.id) };
+}
+
 export async function verifyPrintful(config) {
   const body = await request('/stores', config);
   return {
@@ -332,7 +420,15 @@ export async function buildPrintfulOrder(group, config) {
       const variantId = await resolveCatalogVariantId(item, config);
 
       const files = [];
-      if (config.printfulUseProductImageAsPrintFile) {
+
+      if (config.printfulUseLibraryArtwork) {
+        const artwork = await resolveArtworkFile(item, config);
+        if (artwork.type === 'id') {
+          files.push({ id: artwork.id, type: 'default' });
+        } else {
+          files.push({ url: artwork.url, type: 'default' });
+        }
+      } else if (config.printfulUseProductImageAsPrintFile) {
         if (!item.imageUrl) {
           throw new Error(`No ShipStation imageUrl found for SKU ${item.sku || '(no SKU)'}.`);
         }

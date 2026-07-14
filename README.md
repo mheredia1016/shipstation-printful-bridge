@@ -1,4 +1,4 @@
-# ShipStation → Printful Bridge v3.1
+# ShipStation → Printful Bridge v3.2
 
 Production workflow:
 
@@ -128,3 +128,26 @@ API_MAX_RETRIES=6
 ```
 
 No new state file or order suffix is needed when upgrading from v3.0.
+
+
+## v3.2 Printful file-library artwork
+
+The bridge now looks up the ShipStation `old sku` in Printful's File Library.
+
+Example:
+
+```text
+old sku: aew3507
+Printful filename: aew3507.png
+```
+
+Recommended Railway variables:
+
+```env
+PRINTFUL_USE_LIBRARY_ARTWORK=true
+PRINTFUL_ARTWORK_EXTENSION=.png
+PRINTFUL_USE_PRODUCT_IMAGE_AS_PRINT_FILE=false
+PRINTFUL_MISSING_ARTWORK_BEHAVIOR=fail
+PRINTFUL_FILE_PAGE_SIZE=100
+PRINTFUL_FILE_MAX_PAGES=100
+```

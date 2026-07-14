@@ -141,14 +141,8 @@ export async function listCandidateOrders(config) {
     const orders = Array.isArray(result.orders) ? result.orders : [];
 
     for (const order of orders) {
-      const values = String(order?.advancedOptions?.customField1 || '')
-  .split(',')
-  .map(value => value.trim().toLowerCase())
-  .filter(Boolean);
-
-if (values.includes(expected)) {
-  candidates.push(order);
-}
+      const value = String(order?.advancedOptions?.customField1 || '').trim().toLowerCase();
+      if (value === expected) candidates.push(order);
     }
 
     if (orders.length < config.pageSize || page >= Number(result.pages || 1)) break;
