@@ -5,6 +5,10 @@ import { loadState, saveState } from './state.js';
 let running = false;
 let lastRun = null;
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 function summarizeOrder(order, stateRecord) {
   return {
     orderId: order.orderId,
@@ -96,6 +100,10 @@ export async function runImport(config, { forceOrderId = null } = {}) {
         output.submitted += 1;
 
         await saveState(config.stateFile, state);
+
+        if (config.printfulRequestDelayMs > 0) {
+          await sleep(config.printfulRequestDelayMs);
+        }
       } catch (error) {
         state.orders[stateKey] = {
           status: 'error',
@@ -108,6 +116,10 @@ export async function runImport(config, { forceOrderId = null } = {}) {
         summary.error = error.message;
         output.failed += 1;
         await saveState(config.stateFile, state);
+
+        if (config.printfulRequestDelayMs > 0) {
+          await sleep(config.printfulRequestDelayMs);
+        }
       }
     }
 

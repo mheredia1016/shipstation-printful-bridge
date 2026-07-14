@@ -33,6 +33,8 @@ export function getConfig({ validateSecrets = true } = {}) {
     printfulMode: mode,
     printfulOrderSuffix: process.env.PRINTFUL_ORDER_SUFFIX || '',
     printfulExternalIdPrefix: process.env.PRINTFUL_EXTERNAL_ID_PREFIX || 'SS',
+    printfulRequestDelayMs: integer('PRINTFUL_REQUEST_DELAY_MS', 1200),
+    apiMaxRetries: integer('API_MAX_RETRIES', 6),
     printfulPlaceholderSyncVariantId: process.env.PRINTFUL_PLACEHOLDER_SYNC_VARIANT_ID || '',
     printfulUseCustomItems:
       String(process.env.PRINTFUL_USE_CUSTOM_ITEMS || 'false').toLowerCase() === 'true',

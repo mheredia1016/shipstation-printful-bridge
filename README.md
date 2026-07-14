@@ -1,4 +1,4 @@
-# ShipStation → Printful Bridge v2.6
+# ShipStation → Printful Bridge v2.7
 
 This version imports ShipStation orders into Printful as unconfirmed drafts.
 
@@ -313,3 +313,31 @@ PRINTFUL_REVIEW_PREFIX=
 ```
 
 to avoid adding warning text to the visible product title.
+
+
+## v2.7 rate-limit protection
+
+Version 2.7 handles HTTP 429 responses automatically.
+
+It now:
+
+- Honors the API `Retry-After` header
+- Retries with exponential backoff
+- Waits between Printful orders
+- Continues the import instead of immediately failing all orders
+
+Recommended Railway variables:
+
+```env
+PRINTFUL_REQUEST_DELAY_MS=1200
+API_MAX_RETRIES=6
+```
+
+For stricter throttling:
+
+```env
+PRINTFUL_REQUEST_DELAY_MS=2500
+API_MAX_RETRIES=8
+```
+
+Keep the same external ID suffix and state file when retrying orders that failed with 429. Failed state entries are eligible to run again; only successfully submitted entries are skipped.

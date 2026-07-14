@@ -1,6 +1,6 @@
 {
   "name": "shipstation-printful-bridge",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "description": "Imports ShipStation orders marked Printful into a Printful API store as drafts.",
   "type": "module",
   "main": "src/index.js",

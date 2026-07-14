@@ -32,6 +32,8 @@ app.get('/api/status', async (_req, res) => {
     customFieldValue: config.customFieldValue,
     orderSuffix: config.printfulOrderSuffix,
     externalIdPrefix: config.printfulExternalIdPrefix,
+    printfulRequestDelayMs: config.printfulRequestDelayMs,
+    apiMaxRetries: config.apiMaxRetries,
     customItemMode: config.printfulUseCustomItems,
     customCatalogVariantId: config.printfulCustomCatalogVariantId || null,
     customProductId: config.printfulCustomProductId,
@@ -84,6 +86,8 @@ app.listen(config.port, () => {
   console.log(`Matching Custom Field 1: ${config.customFieldValue}`);
   console.log(`Printful external ID prefix: ${config.printfulExternalIdPrefix}`);
   console.log(`Printful order suffix: ${config.printfulOrderSuffix || '(none)'}`);
+  console.log(`Printful request delay: ${config.printfulRequestDelayMs}ms`);
+  console.log(`API max retries: ${config.apiMaxRetries}`);
   console.log(`Printful item mode: ${config.printfulUseCustomItems ? 'custom item' : 'synced placeholder'}`);
 
   if (config.runOnStart) {
