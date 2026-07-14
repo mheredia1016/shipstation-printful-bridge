@@ -169,3 +169,40 @@ The related values are:
 - Store product ID: `446033521`
 - Store/sync variant ID: `5394157268` — use this in the bridge
 - Catalog variant ID: `11548` — do not use this for the synced placeholder workflow
+
+
+## ShipStation order number matching
+
+Printful draft orders now use the exact ShipStation `orderNumber` as the Printful `external_id`.
+
+Example:
+
+```text
+ShipStation order number: 123456
+Printful external order number: 123456
+```
+
+The internal ShipStation order ID is still retained in the notes for troubleshooting.
+
+
+## Original ShipStation item details in drafts
+
+Version 1.5 creates one placeholder line for every ShipStation line item.
+
+Each Printful placeholder line receives an external item reference formatted as:
+
+```text
+SKU | Size | Color
+```
+
+The order gift message also includes:
+
+- Original product title
+- SKU
+- Quantity
+- Size
+- Color
+- Additional ShipStation options
+- ShipStation product image URL, when available
+
+Printful will still display the synced placeholder's own product title, mockup, Black color and Large size on the product card. Those fields belong to the synced variant and cannot be renamed without using actual synced Printful products.
