@@ -1,4 +1,4 @@
-# ShipStation → Printful Bridge v3.0
+# ShipStation → Printful Bridge v3.1
 
 Production workflow:
 
@@ -107,3 +107,24 @@ Keep `PRINTFUL_MODE=draft`.
 5. Check Shopify: the fulfillment and tracking should appear through the ShipStation sales-channel notification.
 
 Do not enable this for every order until one full tracking test reaches Shopify correctly.
+
+
+## v3.1 ShipStation 429 protection
+
+Version 3.1 adds:
+
+- Automatic retry for ShipStation HTTP 429 responses
+- `Retry-After` support
+- Exponential backoff
+- 15-minute cache for the ShipStation store list
+- 60-second cache for `/api/status`
+
+This reduces unnecessary API calls when refreshing the browser dashboard.
+
+The same `API_MAX_RETRIES` variable controls retry attempts for both Printful and ShipStation:
+
+```env
+API_MAX_RETRIES=6
+```
+
+No new state file or order suffix is needed when upgrading from v3.0.

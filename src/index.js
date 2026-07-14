@@ -12,6 +12,11 @@ import {
 const config = getConfig();
 const app = express();
 
+let statusCache = {
+  expiresAt: 0,
+  value: null
+};
+
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static('public'));
 
@@ -33,6 +38,17 @@ app.get('/health', (_req, res) => {
 });
 
 app.get('/api/status', async (_req, res) => {
+  const now = Date.now();
+
+  if (statusCache.value && statusCache.expiresAt > now) {
+    return res.json({
+      ...statusCache.value,
+      lastImport: getLastRun(),
+      lastTrackingSync: getLastTrackingRun(),
+      cached: true
+    });
+  }
+
   const result = {
     mode: config.printfulMode,
     stateFile: config.stateFile,
@@ -41,7 +57,8 @@ app.get('/api/status', async (_req, res) => {
     shipstation: null,
     printful: null,
     lastImport: getLastRun(),
-    lastTrackingSync: getLastTrackingRun()
+    lastTrackingSync: getLastTrackingRun(),
+    cached: false
   };
 
   try {
@@ -55,6 +72,11 @@ app.get('/api/status', async (_req, res) => {
   } catch (error) {
     result.printful = { connected: false, error: error.message };
   }
+
+  statusCache = {
+    value: result,
+    expiresAt: now + (60 * 1000)
+  };
 
   res.json(result);
 });

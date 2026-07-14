@@ -4,35 +4,105 @@ function authHeader(apiKey, apiSecret) {
   return `Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString('base64')}`;
 }
 
-async function request(path, config, options = {}) {
-  const response = await fetch(`${BASE_URL}${path}`, {
-    ...options,
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      Authorization: authHeader(config.shipstationApiKey, config.shipstationApiSecret),
-      ...(options.headers || {})
-    }
-  });
-
-  const text = await response.text();
-  let body;
-  try {
-    body = text ? JSON.parse(text) : {};
-  } catch {
-    body = { raw: text };
-  }
-
-  if (!response.ok) {
-    throw new Error(`ShipStation ${response.status}: ${JSON.stringify(body).slice(0, 1400)}`);
-  }
-
-  return body;
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-export async function listStores(config) {
+function retryDelayMs(response, attempt) {
+  const retryAfter = response.headers.get('retry-after');
+
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds)) {
+      return Math.max(1000, seconds * 1000);
+    }
+
+    const date = Date.parse(retryAfter);
+    if (!Number.isNaN(date)) {
+      return Math.max(1000, date - Date.now());
+    }
+  }
+
+  return Math.min(30000, 2000 * (2 ** attempt));
+}
+
+async function request(path, config, options = {}) {
+  const maxRetries = Math.max(1, Number(config.apiMaxRetries || 6));
+
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    const response = await fetch(`${BASE_URL}${path}`, {
+      ...options,
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Authorization: authHeader(
+          config.shipstationApiKey,
+          config.shipstationApiSecret
+        ),
+        ...(options.headers || {})
+      }
+    });
+
+    const text = await response.text();
+    let body;
+    try {
+      body = text ? JSON.parse(text) : {};
+    } catch {
+      body = { raw: text };
+    }
+
+    if (response.status === 429 && attempt < maxRetries) {
+      const delay = retryDelayMs(response, attempt);
+      console.warn(
+        `ShipStation 429 on ${path}. Retrying in ` +
+        `${Math.round(delay / 1000)}s ` +
+        `(attempt ${attempt + 1}/${maxRetries}).`
+      );
+      await sleep(delay);
+      continue;
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        `ShipStation ${response.status}: ` +
+        `${JSON.stringify(body).slice(0, 1400)}`
+      );
+    }
+
+    return body;
+  }
+
+  throw new Error(
+    `ShipStation request failed after ${maxRetries} retries: ${path}`
+  );
+}
+
+let storesCache = {
+  expiresAt: 0,
+  stores: []
+};
+
+
+export async function listStores(config, { force = false } = {}) {
+  const now = Date.now();
+
+  if (
+    !force &&
+    storesCache.stores.length &&
+    storesCache.expiresAt > now
+  ) {
+    return storesCache.stores;
+  }
+
   const result = await request('/stores', config);
-  return Array.isArray(result) ? result : [];
+  const stores = Array.isArray(result) ? result : [];
+
+  storesCache = {
+    stores,
+    expiresAt: now + (15 * 60 * 1000)
+  };
+
+  return stores;
 }
 
 export async function verifyShipStation(config) {
