@@ -61,6 +61,118 @@ async function request(path, config, options = {}) {
   throw new Error(`Printful request failed after ${maxRetries} retries: ${path}`);
 }
 
+
+let catalogVariantCache = null;
+
+function normalizeSize(value) {
+  const raw = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '');
+
+  const aliases = {
+    small: 'S',
+    s: 'S',
+    medium: 'M',
+    m: 'M',
+    large: 'L',
+    l: 'L',
+    'x-large': 'XL',
+    xlarge: 'XL',
+    xl: 'XL',
+    'xx-large': '2XL',
+    xxlarge: '2XL',
+    '2xl': '2XL',
+    'xxx-large': '3XL',
+    xxxlarge: '3XL',
+    '3xl': '3XL',
+    'xxxx-large': '4XL',
+    xxxxlarge: '4XL',
+    '4xl': '4XL',
+    'xxxxx-large': '5XL',
+    xxxxxlarge: '5XL',
+    '5xl': '5XL'
+  };
+
+  return aliases[raw] || String(value || '').trim().toUpperCase();
+}
+
+async function getCatalogVariants(config) {
+  if (catalogVariantCache) return catalogVariantCache;
+
+  const body = await request(
+    `/products/${encodeURIComponent(config.printfulCustomProductId)}`,
+    config
+  );
+
+  const result = body.result || body;
+  const variants = Array.isArray(result.variants) ? result.variants : [];
+
+  if (!variants.length) {
+    throw new Error(
+      `No catalog variants returned for Printful product ${config.printfulCustomProductId}.`
+    );
+  }
+
+  catalogVariantCache = variants;
+  return variants;
+}
+
+async function resolveCatalogVariantId(item, config) {
+  const orderedSize = normalizeSize(
+    getOption(item, ['size', 'size property'])
+  );
+
+  const orderedColor = String(
+    getOption(item, ['color', 'colour']) ||
+    config.printfulFallbackColor ||
+    'Black'
+  ).trim();
+
+  if (!orderedSize) {
+    if (config.printfulCustomCatalogVariantId) {
+      return Number(config.printfulCustomCatalogVariantId);
+    }
+
+    throw new Error(
+      `No size found for SKU ${item.sku || '(no SKU)'}.`
+    );
+  }
+
+  const variants = await getCatalogVariants(config);
+  const wantedColor = orderedColor.toLowerCase();
+
+  let match = variants.find(variant => {
+    const size = normalizeSize(variant.size);
+    const color = String(variant.color || '').trim().toLowerCase();
+
+    return size === orderedSize && color === wantedColor;
+  });
+
+  if (!match && config.printfulFallbackColor) {
+    const fallbackColor = String(config.printfulFallbackColor)
+      .trim()
+      .toLowerCase();
+
+    match = variants.find(variant => {
+      const size = normalizeSize(variant.size);
+      const color = String(variant.color || '').trim().toLowerCase();
+
+      return size === orderedSize && color === fallbackColor;
+    });
+  }
+
+  if (!match) {
+    throw new Error(
+      `No catalog variant found for ${orderedColor} / ${orderedSize} ` +
+      `on Printful product ${config.printfulCustomProductId} ` +
+      `(SKU ${item.sku || '(no SKU)'}).`
+    );
+  }
+
+  return Number(match.id);
+}
+
 export async function verifyPrintful(config) {
   const body = await request('/stores', config);
   return {

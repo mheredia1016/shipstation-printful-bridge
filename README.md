@@ -1,4 +1,4 @@
-# ShipStation → Printful Bridge v2.7
+# ShipStation → Printful Bridge v2.8
 
 This version imports ShipStation orders into Printful as unconfirmed drafts.
 
@@ -341,3 +341,21 @@ API_MAX_RETRIES=8
 ```
 
 Keep the same external ID suffix and state file when retrying orders that failed with 429. Failed state entries are eligible to run again; only successfully submitted entries are skipped.
+
+
+## v2.8 hotfix
+
+Version 2.8 restores the catalog size/color resolver that was accidentally removed during the v2.7 rate-limit patch.
+
+It keeps:
+
+- Printful 429 retry handling
+- Retry-After support
+- Delay between orders
+- Actual ShipStation color matching
+- Correct size matching
+- Old SKU display
+- Shopify mockup as the default file
+- Short Printful-safe external IDs
+
+You may keep the same Railway variables, suffix, and state file because the previous run failed before creating any orders.
