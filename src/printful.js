@@ -7,7 +7,6 @@ async function request(path, config, options = {}) {
       Accept: 'application/json',
       'Content-Type': 'application/json',
       Authorization: `Bearer ${config.printfulToken}`,
-      ...(config.printfulStoreId ? {'X-PF-Store-Id': String(config.printfulStoreId)} : {}),
       ...(options.headers || {})
     }
   });
@@ -21,17 +20,19 @@ async function request(path, config, options = {}) {
   }
 
   if (!response.ok || (body.code && Number(body.code) >= 400)) {
-    throw new Error(`Printful ${response.status}: ${JSON.stringify(body).slice(0, 1500)}`);
+    throw new Error(`Printful ${response.status}: ${JSON.stringify(body).slice(0, 1600)}`);
   }
 
   return body;
 }
 
 export async function verifyPrintful(config) {
-  const body = await request(`/stores`, config);
-  return {connected:true, store: body.result || body};
+  const body = await request('/stores', config);
+  return {
+    connected: true,
+    store: body.result || body
+  };
 }
-
 
 function compact(object) {
   return Object.fromEntries(
@@ -70,12 +71,15 @@ function itemReference(item, index) {
   const size = getOption(item, ['size', 'size property']);
   const color = getOption(item, ['color', 'colour']);
 
-  return [title, `SKU ${sku}`, size, color].filter(Boolean).join(' | ').slice(0, 180);
+  return [title, `SKU ${sku}`, size, color]
+    .filter(Boolean)
+    .join(' | ')
+    .slice(0, 180);
 }
 
 function buildShipStationNotes(order) {
   const lines = [
-    `ShipStation Order: ${order.orderNumber || order.orderId}`,
+    `ShipStation Order Number: ${order.orderNumber || order.orderId}`,
     `ShipStation Order ID: ${order.orderId}`,
     '',
     'ORIGINAL ITEMS — replace each placeholder before confirming:',
@@ -108,14 +112,17 @@ function buildShipStationNotes(order) {
 
 export function buildPrintfulOrder(shipstationOrder, config) {
   const address = shipstationOrder.shipTo || {};
-  const productItems = (shipstationOrder.items || []).filter(isRealProductItem);
+  const originalOrderNumber = String(shipstationOrder.orderNumber || shipstationOrder.orderId);
+  const uniqueExternalId =
+    `${originalOrderNumber}-${shipstationOrder.orderId}${config.printfulOrderSuffix}`;
 
-  if (productItems.length === 0) {
-    throw new Error(`ShipStation order ${shipstationOrder.orderNumber || shipstationOrder.orderId} has no eligible product items.`);
+  const realItems = (shipstationOrder.items || []).filter(isRealProductItem);
+  if (realItems.length === 0) {
+    throw new Error(`ShipStation order ${originalOrderNumber} has no usable product items.`);
   }
 
   return {
-    external_id: String(shipstationOrder.orderNumber || shipstationOrder.orderId),
+    external_id: uniqueExternalId,
     shipping: 'STANDARD',
     recipient: compact({
       name: address.name,
@@ -129,23 +136,17 @@ export function buildPrintfulOrder(shipstationOrder, config) {
       phone: address.phone,
       email: shipstationOrder.customerEmail
     }),
-    items: productItems.map((item, index) => ({
-      // Printful still displays the placeholder product title/image/size.
-      // This reference carries the original title, SKU, size and color beside the line item.
+    items: realItems.map((item, index) => ({
       external_id: itemReference(item, index),
       sync_variant_id: Number(config.printfulPlaceholderSyncVariantId),
       quantity: Math.max(1, Number(item.quantity || 1))
     })),
-    retail_costs: {
-      currency: shipstationOrder.orderTotal?.currency || 'USD'
-    },
     gift: {
-      subject: `ShipStation Order ${shipstationOrder.orderNumber || shipstationOrder.orderId}`,
+      subject: `ShipStation Order ${originalOrderNumber}`,
       message: buildShipStationNotes(shipstationOrder)
     }
   };
 }
-
 
 export async function findByExternalId(externalId, config) {
   try {

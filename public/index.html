@@ -5,28 +5,25 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>ShipStation → Printful Bridge</title>
   <style>
-    :root { font-family: Inter, Arial, sans-serif; color: #111; background: #f4f5f7; }
+    :root { font-family: Arial, sans-serif; color: #111; background: #f4f5f7; }
     body { margin: 0; }
-    main { max-width: 1120px; margin: 0 auto; padding: 28px 18px 60px; }
-    h1 { margin-bottom: 6px; }
-    .sub { color: #555; margin-top: 0; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(260px,1fr)); gap: 14px; }
-    .card { background: white; border: 1px solid #ddd; border-radius: 12px; padding: 18px; margin-bottom: 14px; }
-    .good { color: #08783e; font-weight: 700; }
-    .bad { color: #b42318; font-weight: 700; }
-    .warn { color: #9a6700; font-weight: 700; }
-    button { border: 0; border-radius: 8px; padding: 11px 16px; font-weight: 700; cursor: pointer; }
-    button.primary { background: #111; color: #fff; }
-    input { padding: 10px; border: 1px solid #bbb; border-radius: 8px; width: min(340px,100%); box-sizing: border-box; }
-    pre { background: #111; color: #e9e9e9; border-radius: 8px; padding: 14px; overflow: auto; max-height: 520px; white-space: pre-wrap; }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th, td { text-align: left; border-bottom: 1px solid #eee; padding: 9px 6px; vertical-align: top; }
+    main { max-width: 1120px; margin: auto; padding: 28px 18px 60px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; }
+    .card { background:#fff; border:1px solid #ddd; border-radius:12px; padding:18px; margin-bottom:14px; }
+    .good { color:#08783e; font-weight:700; }
+    .bad { color:#b42318; font-weight:700; }
+    .warn { color:#9a6700; font-weight:700; }
+    button { border:0; border-radius:8px; padding:11px 16px; font-weight:700; cursor:pointer; background:#111; color:#fff; }
+    input { padding:10px; border:1px solid #bbb; border-radius:8px; width:min(340px,100%); box-sizing:border-box; }
+    pre { background:#111; color:#eee; border-radius:8px; padding:14px; overflow:auto; max-height:520px; white-space:pre-wrap; }
+    table { width:100%; border-collapse:collapse; font-size:14px; }
+    th,td { text-align:left; border-bottom:1px solid #eee; padding:9px 6px; vertical-align:top; }
   </style>
 </head>
 <body>
 <main>
-  <h1>ShipStation → Printful Bridge</h1>
-  <p class="sub">Imports awaiting-shipment orders where Custom Field 1 equals <strong>Printful</strong>.</p>
+  <h1>ShipStation → Printful Bridge v2</h1>
+  <p>Imports orders from the selected ShipStation store where Custom Field 1 equals <strong>Printful</strong>.</p>
 
   <div class="grid">
     <section class="card">
@@ -34,22 +31,21 @@
       <div id="connections">Checking…</div>
     </section>
     <section class="card">
-      <h2>Safety mode</h2>
+      <h2>Mode</h2>
       <div id="mode">Loading…</div>
-      <p><strong>preview:</strong> reads only<br><strong>draft:</strong> creates unconfirmed orders<br><strong>live:</strong> creates confirmed orders</p>
+      <div id="suffix"></div>
     </section>
   </div>
 
   <section class="card">
     <h2>Run importer</h2>
-    <p>In preview mode this is safe: it does not create Printful orders.</p>
     <input id="token" type="password" placeholder="Admin token, if configured">
-    <button class="primary" id="run">Run Now</button>
+    <button id="run">Run Now</button>
     <span id="runStatus"></span>
   </section>
 
   <section class="card">
-    <h2>Matching orders</h2>
+    <h2>Orders</h2>
     <div id="orders">No run loaded.</div>
   </section>
 
@@ -58,27 +54,14 @@
     <pre id="raw">No run loaded.</pre>
   </section>
 </main>
+
 <script>
 const el = id => document.getElementById(id);
-
-function statusClass(ok) { return ok ? 'good' : 'bad'; }
-
-async function loadStatus() {
-  const response = await fetch('/api/status');
-  const data = await response.json();
-  el('connections').innerHTML = `
-    <p class="${statusClass(data.shipstation?.connected)}">ShipStation: ${data.shipstation?.connected ? 'Connected' : 'Failed'}</p>
-    ${data.shipstation?.selectedStore ? `<p><strong>Selected store:</strong> ${data.shipstation.selectedStore.storeName} (${data.shipstation.selectedStore.storeId})</p>` : ''}
-    <p class="${statusClass(data.printful?.connected)}">Printful: ${data.printful?.connected ? 'Connected' : 'Failed'}</p>
-    ${data.shipstation?.error ? `<small>${data.shipstation.error}</small>` : ''}
-    ${data.printful?.error ? `<small>${data.printful.error}</small>` : ''}
-  `;
-  el('mode').innerHTML = `<strong class="${data.mode === 'live' ? 'bad' : data.mode === 'draft' ? 'warn' : 'good'}">${data.mode.toUpperCase()}</strong>`;
-  if (data.lastRun) render(data.lastRun);
-}
+const cls = ok => ok ? 'good' : 'bad';
 
 function render(data) {
   el('raw').textContent = JSON.stringify(data, null, 2);
+
   const orders = data.orders || [];
   if (!orders.length) {
     el('orders').innerHTML = '<p>No matching orders found.</p>';
@@ -90,25 +73,40 @@ function render(data) {
       <thead><tr><th>Order</th><th>Recipient</th><th>Items</th><th>Status</th></tr></thead>
       <tbody>${orders.map(order => `
         <tr>
-          <td><strong>${order.orderNumber}</strong><br><small>${order.country || ''}</small></td>
-          <td>${order.recipient || ''}</td>
-          <td>${(order.items || []).map(item => `${item.quantity}× ${item.sku || '(no SKU)'}`).join('<br>')}</td>
-          <td>${order.bridgeStatus}${order.error ? `<br><small>${order.error}</small>` : ''}</td>
-        </tr>
-      `).join('')}</tbody>
+          <td><strong>${order.orderNumber}</strong><br><small>${order.orderId}</small></td>
+          <td>${order.recipient || ''}<br><small>${order.country || ''}</small></td>
+          <td>${(order.items || []).map(item => `${item.quantity}× ${item.name || item.sku || '(item)'}`).join('<br>')}</td>
+          <td>${order.bridgeStatus}${order.printfulExternalId ? `<br><small>${order.printfulExternalId}</small>` : ''}${order.error ? `<br><small>${order.error}</small>` : ''}</td>
+        </tr>`).join('')}</tbody>
     </table>`;
+}
+
+async function loadStatus() {
+  const response = await fetch('/api/status');
+  const data = await response.json();
+
+  el('connections').innerHTML = `
+    <p class="${cls(data.shipstation?.connected)}">ShipStation: ${data.shipstation?.connected ? 'Connected' : 'Failed'}</p>
+    ${data.shipstation?.selectedStore ? `<p><strong>Store:</strong> ${data.shipstation.selectedStore.storeName} (${data.shipstation.selectedStore.storeId})</p>` : ''}
+    <p class="${cls(data.printful?.connected)}">Printful: ${data.printful?.connected ? 'Connected' : 'Failed'}</p>
+  `;
+
+  el('mode').innerHTML = `<strong>${String(data.mode || '').toUpperCase()}</strong>`;
+  el('suffix').innerHTML = `<p><strong>Suffix:</strong> ${data.orderSuffix || '(none)'}</p>`;
+  if (data.lastRun) render(data.lastRun);
 }
 
 el('run').addEventListener('click', async () => {
   el('runStatus').textContent = ' Running…';
-  const headers = { 'Content-Type': 'application/json' };
+  const headers = { 'Content-Type':'application/json' };
   if (el('token').value) headers['x-admin-token'] = el('token').value;
 
   const response = await fetch('/api/run', {
-    method: 'POST',
+    method:'POST',
     headers,
-    body: '{}'
+    body:'{}'
   });
+
   const data = await response.json();
   el('runStatus').textContent = response.ok ? ' Complete.' : ` Error: ${data.error}`;
   if (response.ok) render(data);

@@ -23,7 +23,7 @@ async function request(path, config, options = {}) {
   }
 
   if (!response.ok) {
-    throw new Error(`ShipStation ${response.status}: ${JSON.stringify(body).slice(0, 1000)}`);
+    throw new Error(`ShipStation ${response.status}: ${JSON.stringify(body).slice(0, 1200)}`);
   }
 
   return body;
@@ -39,7 +39,10 @@ export async function verifyShipStation(config) {
     request(`/orders?pageSize=1&page=1&storeId=${encodeURIComponent(config.shipstationStoreId)}`, config),
     listStores(config)
   ]);
-  const selectedStore = stores.find(store => String(store.storeId) === String(config.shipstationStoreId)) || null;
+
+  const selectedStore =
+    stores.find(store => String(store.storeId) === String(config.shipstationStoreId)) || null;
+
   return {
     connected: true,
     selectedStoreId: config.shipstationStoreId,
@@ -68,8 +71,8 @@ export async function listCandidateOrders(config) {
     const orders = Array.isArray(result.orders) ? result.orders : [];
 
     for (const order of orders) {
-      const customField1 = String(order?.advancedOptions?.customField1 || '').trim().toLowerCase();
-      if (customField1 === expected) candidates.push(order);
+      const value = String(order?.advancedOptions?.customField1 || '').trim().toLowerCase();
+      if (value === expected) candidates.push(order);
     }
 
     if (orders.length < config.pageSize || page >= Number(result.pages || 1)) break;

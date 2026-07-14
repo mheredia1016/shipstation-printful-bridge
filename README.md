@@ -1,224 +1,98 @@
-# ShipStation → Printful Bridge
+# ShipStation → Printful Bridge v2.0
 
-This service scans ShipStation for orders whose **Custom Field 1** equals `Printful`, creates an unconfirmed Printful draft using a placeholder store variant in a selected Printful API store.
+This version imports ShipStation orders into Printful as unconfirmed drafts.
 
-## Safety modes
+## Matching rules
 
-- `PRINTFUL_MODE=preview` — reads and previews orders only. Nothing is created in Printful.
-- `PRINTFUL_MODE=draft` — creates unconfirmed Printful orders.
-- `PRINTFUL_MODE=live` — creates and confirms Printful orders. This can incur charges.
+An order is imported only when:
 
-Start in `preview`.
+- It belongs to `SHIPSTATION_STORE_ID`
+- Its status matches `SHIPSTATION_ORDER_STATUS`
+- Custom Field 1 equals `SHIPSTATION_CUSTOM_FIELD_VALUE`
 
-## 1. Upload to GitHub
+## Important Printful order ID behavior
 
-Upload every file in this repository, preserving the folders.
+Each Printful external order ID is unique:
 
-## 2. Deploy to Railway
+```text
+{ShipStation order number}-{ShipStation order ID}{optional suffix}
+```
 
-Create a Railway project from this GitHub repository.
+Example:
 
-Add these variables:
+```text
+AEW167693-1430365419-TEST4
+AEW167693-1430365424-TEST4
+```
+
+This prevents split ShipStation records with the same order number from colliding in Printful.
+
+The original ShipStation order number still appears in the Printful gift subject and notes.
+
+## Railway variables for immediate testing
 
 ```env
 PORT=8080
+
 SHIPSTATION_API_KEY=...
 SHIPSTATION_API_SECRET=...
+SHIPSTATION_STORE_ID=441983
 SHIPSTATION_ORDER_STATUS=awaiting_shipment
-SHIPSTATION_STORE_ID=123456
 SHIPSTATION_CUSTOM_FIELD_VALUE=Printful
-SHIPSTATION_PAGE_SIZE=100
-SHIPSTATION_MAX_PAGES=10
 
 PRINTFUL_API_TOKEN=...
 PRINTFUL_PLACEHOLDER_SYNC_VARIANT_ID=5394157268
+PRINTFUL_MODE=draft
 
-PRINTFUL_MODE=preview
+PRINTFUL_ORDER_SUFFIX=-TEST4
+STATE_FILE=./data/state-test4.json
+
 RUN_ON_START=true
 POLL_INTERVAL_MINUTES=10
-
 ADMIN_TOKEN=choose-a-private-password
+```
+
+Use a new suffix and a new state filename each time you intentionally re-import the same old ShipStation orders during testing.
+
+## After testing
+
+For future production orders, remove the suffix:
+
+```env
+PRINTFUL_ORDER_SUFFIX=
 STATE_FILE=./data/state.json
 ```
 
-Do not put secrets in `.env.example` or commit a real `.env` file.
-
-## 3. Add SKU mappings
-
-Edit `data/mappings.csv`.
-
-```csv
-sku,printful_variant_id,front_art_url,back_art_url,active
-MY-SKU-BLACK-S,4014,https://your-public-art-host.com/MY-SKU.png,,true
-MY-SKU-BLACK-M,4015,https://your-public-art-host.com/MY-SKU.png,,true
-```
-
-Requirements:
-
-- `sku` must exactly match the ShipStation item SKU, ignoring capitalization and surrounding spaces.
-- `printful_variant_id` is the Printful catalog variant ID for the exact garment/color/size.
-- `front_art_url` must be a publicly downloadable direct image URL.
-- `back_art_url` is optional.
-- `active` must be `true` for the mapping to be used.
-
-## 4. Test
-
-Open the Railway public URL.
-
-The dashboard verifies the API token. If your token is store-scoped, no Store ID is required. Press **Run Now**. With `PRINTFUL_MODE=preview`, the importer only displays matching orders and mapping errors.
-
-An order is eligible only when:
-
-1. It belongs to `SHIPSTATION_STORE_ID`.
-2. Its ShipStation status matches `SHIPSTATION_ORDER_STATUS`.
-3. `advancedOptions.customField1` equals `Printful`.
-4. Every item SKU has an active mapping.
-
-## 5. Create Printful drafts
-
-After preview results are correct, change:
+Keep:
 
 ```env
 PRINTFUL_MODE=draft
 ```
 
-Redeploy, then run one order. It will appear in Printful but remain unconfirmed.
+unless you intentionally want Printful to confirm and charge orders automatically.
 
-## 6. Enable live submission
+## Draft information
 
-Only after draft testing:
+Each real ShipStation item becomes one Printful placeholder line.
 
-```env
-PRINTFUL_MODE=live
-```
-
-Live mode confirms orders and may charge the Printful billing method.
-
-## Duplicate protection
-
-Each Printful order uses:
+The external item reference includes:
 
 ```text
-shipstation-{ShipStation order ID}
+Product title | SKU | Size | Color
 ```
 
-as its external ID. Before creating an order, the bridge checks Printful for that external ID and stores successful submissions in `data/state.json`.
+The Printful gift message includes:
 
-For durable state on Railway, attach a persistent volume and point `STATE_FILE` to that mounted location, for example:
-
-```env
-STATE_FILE=/data/state.json
-```
-
-## Endpoints
-
-- `GET /health`
-- `GET /api/status`
-- `GET /api/last-run`
-- `POST /api/run`
-
-When `ADMIN_TOKEN` is configured, send it as the `x-admin-token` header for `POST /api/run`.
-
-## Current scope
-
-Version 1:
-
-- Reads ShipStation awaiting-shipment orders
-- Filters Custom Field 1 = Printful
-- Maps ShipStation SKUs
-- Verifies the selected Printful store
-- Supports preview, draft and live modes
-- Prevents common duplicate submissions
-- Provides a basic dashboard
-
-Tracking updates from Printful back to ShipStation are not included in this first version. Add them only after order creation is verified.
-
-
-## Finding the ShipStation Store ID
-
-After deployment, open `/api/status`. The `shipstation.stores` section lists every connected ShipStation store with its `storeId` and `storeName`.
-
-Set the selected value in Railway:
-
-```env
-SHIPSTATION_STORE_ID=123456
-```
-
-The importer passes this value as the ShipStation Orders API `storeId` filter, so orders from other ShipStation stores are ignored.
-
-
-## Placeholder draft workflow
-
-This version does not use SKU mappings.
-
-Every matching ShipStation order is created in Printful with:
-
-- The original customer shipping address
-- One placeholder synced store variant
-- The ShipStation order number and original line items in the gift message/notes
-- `confirm=false` when `PRINTFUL_MODE=draft`
-
-For the current ShopAEW UK placeholder:
-
-```env
-PRINTFUL_PLACEHOLDER_SYNC_VARIANT_ID=5394157268
-```
-
-The related values are:
-
-- Store product ID: `446033521`
-- Store/sync variant ID: `5394157268` — use this in the bridge
-- Catalog variant ID: `11548` — do not use this for the synced placeholder workflow
-
-
-## ShipStation order number matching
-
-Printful draft orders now use the exact ShipStation `orderNumber` as the Printful `external_id`.
-
-Example:
-
-```text
-ShipStation order number: 123456
-Printful external order number: 123456
-```
-
-The internal ShipStation order ID is still retained in the notes for troubleshooting.
-
-
-## Original ShipStation item details in drafts
-
-Version 1.5 creates one placeholder line for every ShipStation line item.
-
-Each Printful placeholder line receives an external item reference formatted as:
-
-```text
-SKU | Size | Color
-```
-
-The order gift message also includes:
-
-- Original product title
+- Original ShipStation order number
+- Internal ShipStation order ID
+- Product title
 - SKU
 - Quantity
 - Size
 - Color
-- Additional ShipStation options
-- ShipStation product image URL, when available
+- Product image URL
+- Backend Product Info
+- Old SKU
+- Type of Garment
 
-Printful will still display the synced placeholder's own product title, mockup, Black color and Large size on the product card. Those fields belong to the synced variant and cannot be renamed without using actual synced Printful products.
-
-
-## Version 1.6 item-detail update
-
-The bridge now:
-
-- Reads size from both `Size` and `Size Property`
-- Places the original product title, SKU, size and color in each Printful item's external reference
-- Ignores blank-SKU and common add-on lines such as `Shop10`, `AEW_89588`, and numeric-only item names
-- Keeps image URLs and all remaining options in the order message
-
-Example external item reference:
-
-```text
-Young Bucks - Skull Kick T-Shirt - Small | SKU 6402189-1 | Small | Sapphire
-```
+Blank-SKU add-on lines such as `Shop10`, `AEW_89588`, or numeric-only references are ignored.

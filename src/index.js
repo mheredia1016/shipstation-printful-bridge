@@ -30,6 +30,8 @@ app.get('/api/status', async (_req, res) => {
   const result = {
     mode: config.printfulMode,
     customFieldValue: config.customFieldValue,
+    orderSuffix: config.printfulOrderSuffix,
+    stateFile: config.stateFile,
     shipstation: null,
     printful: null,
     lastRun: getLastRun()
@@ -69,16 +71,27 @@ app.listen(config.port, () => {
   console.log(`ShipStation → Printful bridge listening on port ${config.port}`);
   console.log(`Mode: ${config.printfulMode}`);
   console.log(`Matching Custom Field 1: ${config.customFieldValue}`);
+  console.log(`Printful order suffix: ${config.printfulOrderSuffix || '(none)'}`);
 
   if (config.runOnStart) {
     runImport(config)
-      .then(result => console.log(`Initial scan complete: ${result.found} matching order(s).`))
+      .then(result => {
+        console.log(
+          `Initial scan complete: ${result.found} found, ${result.submitted} submitted, ` +
+          `${result.skipped} skipped, ${result.failed} failed.`
+        );
+      })
       .catch(error => console.error('Initial scan failed:', error));
   }
 
   setInterval(() => {
     runImport(config)
-      .then(result => console.log(`Scheduled scan complete: ${result.found} matching order(s).`))
+      .then(result => {
+        console.log(
+          `Scheduled scan complete: ${result.found} found, ${result.submitted} submitted, ` +
+          `${result.skipped} skipped, ${result.failed} failed.`
+        );
+      })
       .catch(error => console.error('Scheduled scan failed:', error));
   }, config.pollIntervalMinutes * 60 * 1000).unref();
 });
