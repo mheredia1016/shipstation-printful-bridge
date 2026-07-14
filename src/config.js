@@ -55,6 +55,8 @@ export function getConfig({ validateSecrets = true } = {}) {
     printfulFileMaxPages: integer('PRINTFUL_FILE_MAX_PAGES', 100),
     printfulMissingArtworkBehavior:
       (process.env.PRINTFUL_MISSING_ARTWORK_BEHAVIOR || 'fail').trim().toLowerCase(),
+    artworkMapFile: process.env.ARTWORK_MAP_FILE || '/data/artwork-map.json',
+    printfulProductScanMaxPages: integer('PRINTFUL_PRODUCT_SCAN_MAX_PAGES', 100),
     printfulReviewPrefix: process.env.PRINTFUL_REVIEW_PREFIX || '',
     printfulSkuSource: (process.env.PRINTFUL_SKU_SOURCE || 'old_sku').trim().toLowerCase(),
     printfulPrefixTitleWithSku: boolean('PRINTFUL_PREFIX_TITLE_WITH_SKU', true),

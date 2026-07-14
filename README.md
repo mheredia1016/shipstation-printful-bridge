@@ -1,4 +1,4 @@
-# ShipStation → Printful Bridge v3.3
+# ShipStation → Printful Bridge v3.4
 
 Production workflow:
 
@@ -167,3 +167,51 @@ PWT, Printful, UK
 ```
 
 The logs also show how many orders were skipped because they were already recorded.
+
+
+## v3.4 fix for removed Printful `/files` endpoint
+
+Printful permanently removed the endpoint that listed the entire File Library.
+
+Version 3.4 no longer calls `/files`.
+
+Artwork resolution now works in this order:
+
+1. Read `/data/artwork-map.json`.
+2. Scan files attached to existing Printful store products and match `old-sku.png`.
+3. Use the configured missing-artwork behavior.
+
+Recommended variables:
+
+```env
+ARTWORK_MAP_FILE=/data/artwork-map.json
+PRINTFUL_PRODUCT_SCAN_MAX_PAGES=100
+PRINTFUL_MISSING_ARTWORK_BEHAVIOR=fail
+```
+
+### Manually add an artwork file ID
+
+Send:
+
+```http
+POST /api/artwork-map
+Content-Type: application/json
+x-admin-token: YOUR_ADMIN_TOKEN
+```
+
+```json
+{
+  "sku": "aew3507",
+  "fileId": 318537690
+}
+```
+
+The mapping is saved on the Railway volume and survives redeployments.
+
+View mappings at:
+
+```text
+/api/artwork-map
+```
+
+Files that exist only as unattached File Library items cannot be discovered through the current Printful API. Attach them to a store product once, or add their file IDs to the persistent artwork map.

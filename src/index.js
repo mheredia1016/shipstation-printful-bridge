@@ -1,3 +1,9 @@
+import {
+  artworkMapEntries,
+  loadArtworkMap,
+  saveArtworkMap,
+  setArtworkFileId
+} from './artwork-map.js';
 import express from 'express';
 import { getConfig } from './config.js';
 import { verifyShipStation } from './shipstation.js';
@@ -57,6 +63,7 @@ app.get('/api/status', async (_req, res) => {
     useLibraryArtwork: config.printfulUseLibraryArtwork,
     artworkExtension: config.printfulArtworkExtension,
     missingArtworkBehavior: config.printfulMissingArtworkBehavior,
+    artworkMapFile: config.artworkMapFile,
     shipstation: null,
     printful: null,
     lastImport: getLastRun(),
@@ -82,6 +89,32 @@ app.get('/api/status', async (_req, res) => {
   };
 
   res.json(result);
+});
+
+
+app.get('/api/artwork-map', requireAdmin, async (_req, res) => {
+  try {
+    const map = await loadArtworkMap(config.artworkMapFile);
+    res.json({
+      file: config.artworkMapFile,
+      count: artworkMapEntries(map).length,
+      entries: artworkMapEntries(map)
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/artwork-map', requireAdmin, async (req, res) => {
+  try {
+    const { sku, fileId } = req.body || {};
+    const map = await loadArtworkMap(config.artworkMapFile);
+    const saved = setArtworkFileId(map, sku, fileId, 'manual');
+    await saveArtworkMap(config.artworkMapFile, map);
+    res.json({ ok: true, sku, ...saved });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
 });
 
 app.post('/api/run', requireAdmin, async (_req, res) => {

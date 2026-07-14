@@ -1,3 +1,10 @@
+import {
+  getArtworkFileId,
+  loadArtworkMap,
+  saveArtworkMap,
+  setArtworkFileId
+} from './artwork-map.js';
+
 const BASE_URL = 'https://api.printful.com';
 
 function sleep(ms) {
@@ -174,91 +181,152 @@ async function resolveCatalogVariantId(item, config) {
 }
 
 
-let fileLibraryCache = { loadedAt: 0, byFilename: new Map() };
 
-function normalizeFilename(value) {
-  return String(value || '').trim().toLowerCase();
+let storeArtworkScanCache = {
+  completedAt: 0,
+  scanned: false
+};
+
+function normalizeArtworkSku(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\.png$/i, '');
 }
 
-async function loadFileLibrary(config, { force = false } = {}) {
-  const oneHour = 60 * 60 * 1000;
-  if (!force && fileLibraryCache.byFilename.size &&
-      Date.now() - fileLibraryCache.loadedAt < oneHour) {
-    return fileLibraryCache.byFilename;
+async function listStoreProductsPage(config, offset) {
+  return request(
+    `/store/products?limit=100&offset=${offset}`,
+    config
+  );
+}
+
+async function getStoreProduct(productId, config) {
+  const body = await request(
+    `/store/products/${encodeURIComponent(productId)}`,
+    config
+  );
+  return body.result || body;
+}
+
+async function scanAttachedStoreArtwork(config, neededSkus = []) {
+  const needed = new Set(
+    neededSkus.map(normalizeArtworkSku).filter(Boolean)
+  );
+
+  const map = await loadArtworkMap(config.artworkMapFile);
+  for (const sku of [...needed]) {
+    if (getArtworkFileId(map, sku)) needed.delete(sku);
   }
 
-  const byFilename = new Map();
+  if (!needed.size) return map;
 
-  for (let page = 0; page < config.printfulFileMaxPages; page += 1) {
-    const offset = page * config.printfulFilePageSize;
-    const body = await request(
-      `/files?limit=${config.printfulFilePageSize}&offset=${offset}`,
-      config
-    );
-    const files = Array.isArray(body.result) ? body.result : [];
+  const oneHour = 60 * 60 * 1000;
+  if (
+    storeArtworkScanCache.scanned &&
+    Date.now() - storeArtworkScanCache.completedAt < oneHour
+  ) {
+    return map;
+  }
 
-    for (const file of files) {
-      const filename = normalizeFilename(file.filename);
-      if (!filename) continue;
-      const existing = byFilename.get(filename);
-      if (!existing || (existing.status !== 'ok' && file.status === 'ok')) {
-        byFilename.set(filename, file);
+  for (
+    let page = 0;
+    page < config.printfulProductScanMaxPages && needed.size;
+    page += 1
+  ) {
+    const offset = page * 100;
+    const body = await listStoreProductsPage(config, offset);
+    const products = Array.isArray(body.result) ? body.result : [];
+
+    for (const product of products) {
+      if (!needed.size) break;
+
+      const details = await getStoreProduct(product.id, config);
+      const variants = Array.isArray(details.sync_variants)
+        ? details.sync_variants
+        : [];
+
+      for (const variant of variants) {
+        for (const file of variant.files || []) {
+          const filenameSku = normalizeArtworkSku(file.filename);
+          if (!filenameSku || !needed.has(filenameSku)) continue;
+          if (!file.id || (file.status && file.status !== 'ok')) continue;
+
+          setArtworkFileId(map, filenameSku, file.id, 'printful-store-product');
+          needed.delete(filenameSku);
+        }
+      }
+
+      if (config.printfulRequestDelayMs > 0) {
+        await sleep(config.printfulRequestDelayMs);
       }
     }
 
-    const total = Number(body?.paging?.total || body?.extra?.paging?.total || 0);
-    if (files.length < config.printfulFilePageSize ||
-        (total && offset + files.length >= total)) break;
-
-    if (config.printfulRequestDelayMs > 0) {
-      await sleep(config.printfulRequestDelayMs);
+    const total = Number(body?.paging?.total || 0);
+    if (products.length < 100 || (total && offset + products.length >= total)) {
+      break;
     }
   }
 
-  fileLibraryCache = { loadedAt: Date.now(), byFilename };
-  console.log(`Loaded ${byFilename.size} Printful file-library filename(s).`);
-  return byFilename;
+  await saveArtworkMap(config.artworkMapFile, map);
+  storeArtworkScanCache = {
+    scanned: true,
+    completedAt: Date.now()
+  };
+
+  return map;
 }
 
 async function resolveArtworkFile(item, config) {
   const oldSku = getOldSku(item);
-  const fallbackSku = String(item.sku || '').trim();
-  const baseSku = oldSku || fallbackSku;
+  const currentSku = String(item.sku || '').trim();
+  const lookupSku = oldSku || currentSku;
 
-  if (!baseSku) {
-    throw new Error(`No old SKU or current SKU found for ${item.name || 'item'}.`);
-  }
-
-  const rawExt = String(config.printfulArtworkExtension || '.png');
-  const extension = rawExt.startsWith('.') ? rawExt : `.${rawExt}`;
-  const expectedFilename = normalizeFilename(`${baseSku}${extension}`);
-
-  let library = await loadFileLibrary(config);
-  let file = library.get(expectedFilename);
-
-  if (!file) {
-    library = await loadFileLibrary(config, { force: true });
-    file = library.get(expectedFilename);
-  }
-
-  if (!file) {
-    if (config.printfulMissingArtworkBehavior === 'mockup' && item.imageUrl) {
-      return { type: 'url', url: String(item.imageUrl).trim() };
-    }
-    if (config.printfulMissingArtworkBehavior === 'placeholder' &&
-        config.printfulCustomFileId) {
-      return { type: 'id', id: Number(config.printfulCustomFileId) };
-    }
-    throw new Error(`Printful artwork file not found: ${expectedFilename}`);
-  }
-
-  if (file.status && file.status !== 'ok') {
+  if (!lookupSku) {
     throw new Error(
-      `Printful artwork ${expectedFilename} has status ${file.status}.`
+      `No old SKU or current SKU found for ${item.name || 'item'}.`
     );
   }
 
-  return { type: 'id', id: Number(file.id) };
+  let map = await loadArtworkMap(config.artworkMapFile);
+  let fileId = getArtworkFileId(map, lookupSku);
+
+  if (!fileId) {
+    map = await scanAttachedStoreArtwork(config, [lookupSku]);
+    fileId = getArtworkFileId(map, lookupSku);
+  }
+
+  if (fileId) {
+    return { type: 'id', id: fileId };
+  }
+
+  if (
+    config.printfulMissingArtworkBehavior === 'placeholder' &&
+    config.printfulCustomFileId
+  ) {
+    return { type: 'id', id: Number(config.printfulCustomFileId) };
+  }
+
+  if (
+    config.printfulMissingArtworkBehavior === 'mockup' &&
+    item.imageUrl
+  ) {
+    return {
+      type: 'url',
+      url: String(item.imageUrl).trim()
+    };
+  }
+
+  throw new Error(
+    `Artwork mapping missing for ${lookupSku}. ` +
+    `The removed Printful /files endpoint cannot search unattached library files. ` +
+    `Add the file ID through /api/artwork-map or attach ${lookupSku}.png ` +
+    `to a Printful store product once so the bridge can discover it.`
+  );
+}
+
+export async function discoverArtworkMappings(skus, config) {
+  return scanAttachedStoreArtwork(config, skus);
 }
 
 export async function verifyPrintful(config) {
