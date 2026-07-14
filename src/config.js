@@ -38,7 +38,11 @@ export function getConfig({ validateSecrets = true } = {}) {
     printfulCustomCatalogVariantId: process.env.PRINTFUL_CUSTOM_CATALOG_VARIANT_ID || '',
     printfulCustomProductId: process.env.PRINTFUL_CUSTOM_PRODUCT_ID || '438',
     printfulCustomColor: process.env.PRINTFUL_CUSTOM_COLOR || 'Black',
+    printfulFallbackColor: process.env.PRINTFUL_FALLBACK_COLOR || 'Black',
     printfulCustomFileId: process.env.PRINTFUL_CUSTOM_FILE_ID || '',
+    printfulUseProductImageAsPrintFile:
+      String(process.env.PRINTFUL_USE_PRODUCT_IMAGE_AS_PRINT_FILE || 'false').toLowerCase() === 'true',
+    printfulReviewPrefix: process.env.PRINTFUL_REVIEW_PREFIX || '⚠ REVIEW REQUIRED - ',
     printfulSkuSource: (process.env.PRINTFUL_SKU_SOURCE || 'old_sku').trim().toLowerCase(),
     printfulPrefixTitleWithSku:
       String(process.env.PRINTFUL_PREFIX_TITLE_WITH_SKU || 'true').toLowerCase() === 'true',

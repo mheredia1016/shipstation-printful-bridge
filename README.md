@@ -1,4 +1,4 @@
-# ShipStation → Printful Bridge v2.4
+# ShipStation → Printful Bridge v2.5
 
 This version imports ShipStation orders into Printful as unconfirmed drafts.
 
@@ -223,3 +223,48 @@ Expected result:
 - Placeholder artwork retained as the printable file
 
 Keep the order in draft and inspect **Print files** before confirming. The Shopify mockup must appear as `preview`, not `default`.
+
+
+## v2.5 actual color + Shopify mockup thumbnail
+
+Version 2.5:
+
+- Reads the ordered `Color`/`Colour` from ShipStation
+- Reads `Size` or `Size Property`
+- Selects the matching Printful catalog variant by both color and size
+- Uses the Shopify/ShipStation product image as the `default` print file when enabled
+- Prefixes titles with `⚠ REVIEW REQUIRED -`
+- Keeps orders as drafts
+
+Recommended Railway variables:
+
+```env
+PRINTFUL_USE_CUSTOM_ITEMS=true
+PRINTFUL_CUSTOM_PRODUCT_ID=438
+PRINTFUL_FALLBACK_COLOR=Black
+
+PRINTFUL_USE_PRODUCT_IMAGE_AS_PRINT_FILE=true
+PRINTFUL_USE_SHIPSTATION_PREVIEW=false
+PRINTFUL_REVIEW_PREFIX=⚠ REVIEW REQUIRED - 
+
+PRINTFUL_SKU_SOURCE=old_sku
+PRINTFUL_PREFIX_TITLE_WITH_SKU=true
+
+PRINTFUL_ORDER_SUFFIX=-COLORIMAGETEST1
+STATE_FILE=./data/state-colorimagetest1.json
+PRINTFUL_MODE=draft
+```
+
+Example:
+
+```text
+ShipStation:
+Color: Sapphire
+Size Property: Small
+
+Printful:
+Color: Sapphire
+Size: S
+```
+
+Important: the Shopify mockup is intentionally being sent as the actual default print file in this mode. Do not confirm an order until the correct production artwork replaces it.

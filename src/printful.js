@@ -76,7 +76,8 @@ async function getCatalogVariants(config) {
 
 async function resolveCatalogVariantId(item, config) {
   const orderedSize = normalizeSize(getOption(item, ['size', 'size property']));
-  const wantedColor = String(config.printfulCustomColor || 'Black').trim().toLowerCase();
+  const orderedColor =
+    String(getOption(item, ['color', 'colour']) || config.printfulFallbackColor || 'Black').trim();
 
   if (!orderedSize) {
     if (config.printfulCustomCatalogVariantId) {
@@ -86,16 +87,26 @@ async function resolveCatalogVariantId(item, config) {
   }
 
   const variants = await getCatalogVariants(config);
+  const wantedColor = orderedColor.toLowerCase();
 
-  const match = variants.find(variant => {
+  let match = variants.find(variant => {
     const size = normalizeSize(variant.size);
     const color = String(variant.color || '').trim().toLowerCase();
     return size === orderedSize && color === wantedColor;
   });
 
+  if (!match && config.printfulFallbackColor) {
+    const fallbackColor = String(config.printfulFallbackColor).trim().toLowerCase();
+    match = variants.find(variant => {
+      const size = normalizeSize(variant.size);
+      const color = String(variant.color || '').trim().toLowerCase();
+      return size === orderedSize && color === fallbackColor;
+    });
+  }
+
   if (!match) {
     throw new Error(
-      `No ${config.printfulCustomColor} catalog variant found for size ${orderedSize} ` +
+      `No catalog variant found for ${orderedColor} / ${orderedSize} ` +
       `on Printful product ${config.printfulCustomProductId} (SKU ${item.sku || '(no SKU)'}).`
     );
   }
@@ -237,32 +248,48 @@ export async function buildPrintfulOrder(shipstationOrder, config) {
     items: await Promise.all(realItems.map(async (item, index) => {
       const originalTitle = String(item.name || `Item ${index + 1}`).trim();
       const sku = chooseVisibleSku(item, config);
-      const title =
+      const baseTitle =
         config.printfulPrefixTitleWithSku && sku
-          ? `${sku} • ${originalTitle}`.slice(0, 180)
+          ? `${sku} • ${originalTitle}`
           : originalTitle;
+      const title = `${config.printfulReviewPrefix || ''}${baseTitle}`.slice(0, 180);
       const quantity = Math.max(1, Number(item.quantity || 1));
       const reference = itemReference(item, index);
 
       if (config.printfulUseCustomItems) {
-        if (!config.printfulCustomFileId) {
-          throw new Error('PRINTFUL_CUSTOM_FILE_ID is required when PRINTFUL_USE_CUSTOM_ITEMS=true.');
-        }
-
         const variantId = await resolveCatalogVariantId(item, config);
 
-        const files = [
-          {
-            // This remains the actual printable file attached to the placeholder.
+        const files = [];
+
+        if (config.printfulUseProductImageAsPrintFile) {
+          if (!item.imageUrl) {
+            throw new Error(`No ShipStation imageUrl found for SKU ${item.sku || '(no SKU)'}.`);
+          }
+
+          files.push({
+            // User-approved test mode: Shopify mockup becomes the default print file.
+            type: 'default',
+            url: String(item.imageUrl).trim()
+          });
+        } else {
+          if (!config.printfulCustomFileId) {
+            throw new Error(
+              'PRINTFUL_CUSTOM_FILE_ID is required when product images are not used as print files.'
+            );
+          }
+
+          files.push({
             id: Number(config.printfulCustomFileId),
             type: 'default'
-          }
-        ];
+          });
+        }
 
-        if (config.printfulUseShipstationPreview && item.imageUrl) {
+        if (
+          !config.printfulUseProductImageAsPrintFile &&
+          config.printfulUseShipstationPreview &&
+          item.imageUrl
+        ) {
           files.push({
-            // Preview-only mockup from ShipStation/Shopify.
-            // Do not use this as the printable artwork.
             type: 'preview',
             url: String(item.imageUrl).trim()
           });
