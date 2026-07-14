@@ -1,4 +1,4 @@
-# ShipStation → Printful Bridge v3.4
+# ShipStation → Printful Bridge v3.5
 
 Production workflow:
 
@@ -215,3 +215,32 @@ View mappings at:
 ```
 
 Files that exist only as unattached File Library items cannot be discovered through the current Printful API. Attach them to a store product once, or add their file IDs to the persistent artwork map.
+
+
+## v3.5 rollback to Shopify mockup workflow
+
+This version disables Printful File Library artwork mapping.
+
+It uses the Shopify/ShipStation product image as the Printful default file again.
+
+Recommended Railway variables:
+
+```env
+PRINTFUL_USE_LIBRARY_ARTWORK=false
+PRINTFUL_USE_PRODUCT_IMAGE_AS_PRINT_FILE=true
+PRINTFUL_MISSING_ARTWORK_BEHAVIOR=mockup
+```
+
+All other production features remain:
+
+- Exact visible ShipStation order number in Printful
+- Grouping split ShipStation records by order number
+- Actual title
+- Old SKU
+- Correct size
+- Correct color
+- `Printful,PWT` Custom Field support
+- Persistent Railway volume state
+- Printful tracking back to ShipStation
+- ShipStation sales-channel notification back to Shopify
+- ShipStation and Printful 429 retry handling
