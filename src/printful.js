@@ -32,13 +32,36 @@ export async function verifyPrintful(config) {
   return {connected:true, store: body.result || body};
 }
 
+
 function compact(object) {
   return Object.fromEntries(
     Object.entries(object).filter(([, value]) => value !== undefined && value !== null && value !== '')
   );
 }
 
-export function buildPrintfulOrder(shipstationOrder, mappedItems) {
+function buildShipStationNotes(order) {
+  const lines = [
+    `ShipStation Order: ${order.orderNumber || order.orderId}`,
+    `ShipStation Order ID: ${order.orderId}`,
+    '',
+    'Original line items:'
+  ];
+
+  for (const item of order.items || []) {
+    lines.push(`- ${Number(item.quantity || 0)}x ${item.name || 'Unnamed item'}`);
+    if (item.sku) lines.push(`  SKU: ${item.sku}`);
+
+    for (const option of item.options || []) {
+      const name = option.name || option.Name || 'Option';
+      const value = option.value || option.Value || '';
+      lines.push(`  ${name}: ${value}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+export function buildPrintfulOrder(shipstationOrder, config) {
   const address = shipstationOrder.shipTo || {};
 
   return {
@@ -56,16 +79,20 @@ export function buildPrintfulOrder(shipstationOrder, mappedItems) {
       phone: address.phone,
       email: shipstationOrder.customerEmail
     }),
-    items: mappedItems.map(({ item, mapping }) => ({
-      external_id: String(item.orderItemId || `${shipstationOrder.orderId}-${item.sku}`),
-      variant_id: Number(mapping.printful_variant_id),
-      quantity: Number(item.quantity),
-      retail_price: item.unitPrice != null ? String(item.unitPrice) : undefined,
-      files: [
-        mapping.front_art_url ? { type: 'front', url: mapping.front_art_url } : null,
-        mapping.back_art_url ? { type: 'back', url: mapping.back_art_url } : null
-      ].filter(Boolean)
-    }))
+    items: [
+      {
+        external_id: `placeholder-${shipstationOrder.orderId}`,
+        sync_variant_id: Number(config.printfulPlaceholderSyncVariantId),
+        quantity: 1
+      }
+    ],
+    retail_costs: {
+      currency: shipstationOrder.orderTotal?.currency || 'USD'
+    },
+    gift: {
+      subject: `ShipStation Order ${shipstationOrder.orderNumber || shipstationOrder.orderId}`,
+      message: buildShipStationNotes(shipstationOrder)
+    }
   };
 }
 

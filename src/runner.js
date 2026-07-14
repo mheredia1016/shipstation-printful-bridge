@@ -1,12 +1,11 @@
 import { listCandidateOrders } from './shipstation.js';
 import { buildPrintfulOrder, createOrder, findByExternalId } from './printful.js';
-import { loadMappings, mapOrderItems } from './mappings.js';
 import { loadState, saveState } from './state.js';
 
 let running = false;
 let lastRun = null;
 
-function summarizeOrder(order, mappingResult, stateRecord) {
+function summarizeOrder(order, stateRecord) {
   return {
     orderId: order.orderId,
     orderNumber: order.orderNumber,
@@ -18,10 +17,8 @@ function summarizeOrder(order, mappingResult, stateRecord) {
     items: (order.items || []).map(item => ({
       sku: item.sku,
       name: item.name,
-      quantity: item.quantity,
-      mapped: mappingResult.mapped.some(entry => entry.item === item)
+      quantity: item.quantity
     })),
-    missingMappings: mappingResult.missing,
     bridgeStatus: stateRecord?.status || 'new',
     printfulOrderId: stateRecord?.printfulOrderId || null,
     error: stateRecord?.error || null
@@ -50,9 +47,8 @@ export async function runImport(config, { forceOrderId = null } = {}) {
   };
 
   try {
-    const [orders, mappings, state] = await Promise.all([
+    const [orders, state] = await Promise.all([
       listCandidateOrders(config),
-      loadMappings(config.mappingFile),
       loadState(config.stateFile)
     ]);
 
@@ -64,8 +60,7 @@ export async function runImport(config, { forceOrderId = null } = {}) {
 
     for (const order of selected) {
       const existingState = state.orders[String(order.orderId)];
-      const mappingResult = mapOrderItems(order, mappings);
-      const summary = summarizeOrder(order, mappingResult, existingState);
+      const summary = summarizeOrder(order, existingState);
       output.orders.push(summary);
 
       if (existingState?.status === 'submitted') {
@@ -73,13 +68,7 @@ export async function runImport(config, { forceOrderId = null } = {}) {
         continue;
       }
 
-      if (mappingResult.missing.length > 0 || mappingResult.mapped.length === 0) {
-        summary.bridgeStatus = 'mapping_required';
-        output.skipped += 1;
-        continue;
-      }
-
-      const payload = buildPrintfulOrder(order, mappingResult.mapped);
+      const payload = buildPrintfulOrder(order, config);
       summary.payloadPreview = payload;
 
       if (config.printfulMode === 'preview') {

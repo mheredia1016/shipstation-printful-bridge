@@ -1,6 +1,6 @@
 # ShipStation → Printful Bridge
 
-This service scans ShipStation for orders whose **Custom Field 1** equals `Printful`, maps each SKU to a Printful catalog variant and artwork URL, and optionally creates the order in a selected Printful API store.
+This service scans ShipStation for orders whose **Custom Field 1** equals `Printful`, creates an unconfirmed Printful draft using a placeholder store variant in a selected Printful API store.
 
 ## Safety modes
 
@@ -31,13 +31,13 @@ SHIPSTATION_PAGE_SIZE=100
 SHIPSTATION_MAX_PAGES=10
 
 PRINTFUL_API_TOKEN=...
+PRINTFUL_PLACEHOLDER_SYNC_VARIANT_ID=5394157268
 
 PRINTFUL_MODE=preview
 RUN_ON_START=true
 POLL_INTERVAL_MINUTES=10
 
 ADMIN_TOKEN=choose-a-private-password
-MAPPING_FILE=./data/mappings.csv
 STATE_FILE=./data/state.json
 ```
 
@@ -145,3 +145,27 @@ SHIPSTATION_STORE_ID=123456
 ```
 
 The importer passes this value as the ShipStation Orders API `storeId` filter, so orders from other ShipStation stores are ignored.
+
+
+## Placeholder draft workflow
+
+This version does not use SKU mappings.
+
+Every matching ShipStation order is created in Printful with:
+
+- The original customer shipping address
+- One placeholder synced store variant
+- The ShipStation order number and original line items in the gift message/notes
+- `confirm=false` when `PRINTFUL_MODE=draft`
+
+For the current ShopAEW UK placeholder:
+
+```env
+PRINTFUL_PLACEHOLDER_SYNC_VARIANT_ID=5394157268
+```
+
+The related values are:
+
+- Store product ID: `446033521`
+- Store/sync variant ID: `5394157268` — use this in the bridge
+- Catalog variant ID: `11548` — do not use this for the synced placeholder workflow

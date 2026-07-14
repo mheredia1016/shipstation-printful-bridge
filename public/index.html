@@ -92,7 +92,7 @@ function render(data) {
         <tr>
           <td><strong>${order.orderNumber}</strong><br><small>${order.country || ''}</small></td>
           <td>${order.recipient || ''}</td>
-          <td>${(order.items || []).map(item => `${item.quantity}× ${item.sku || '(no SKU)'} ${item.mapped ? '✓' : '⚠'}`).join('<br>')}</td>
+          <td>${(order.items || []).map(item => `${item.quantity}× ${item.sku || '(no SKU)'}`).join('<br>')}</td>
           <td>${order.bridgeStatus}${order.error ? `<br><small>${order.error}</small>` : ''}</td>
         </tr>
       `).join('')}</tbody>

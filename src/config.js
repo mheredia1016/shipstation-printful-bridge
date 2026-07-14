@@ -31,6 +31,7 @@ export function getConfig({ validateSecrets = true } = {}) {
     printfulToken: validateSecrets ? required('PRINTFUL_API_TOKEN') : process.env.PRINTFUL_API_TOKEN,
     printfulStoreId: process.env.PRINTFUL_STORE_ID || '',
     printfulMode: mode,
+    printfulPlaceholderSyncVariantId: required('PRINTFUL_PLACEHOLDER_SYNC_VARIANT_ID'),
 
     runOnStart: String(process.env.RUN_ON_START || 'true').toLowerCase() === 'true',
     pollIntervalMinutes: integer('POLL_INTERVAL_MINUTES', 10),
