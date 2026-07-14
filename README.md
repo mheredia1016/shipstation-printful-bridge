@@ -1,4 +1,4 @@
-# ShipStation → Printful Bridge v2.3
+# ShipStation → Printful Bridge v2.4
 
 This version imports ShipStation orders into Printful as unconfirmed drafts.
 
@@ -189,3 +189,37 @@ both     → AEW4226 (7582314-4)
 ```
 
 When `old sku` is missing, the bridge falls back to the current ShipStation SKU.
+
+
+## v2.4 Shopify/ShipStation preview image test
+
+Version 2.4 adds the ShipStation line item's `imageUrl` as a Printful file with:
+
+```json
+{
+  "type": "preview",
+  "url": "https://cdn.shopify.com/..."
+}
+```
+
+The existing placeholder file remains the only `default` print file.
+
+Recommended test variables:
+
+```env
+PRINTFUL_USE_SHIPSTATION_PREVIEW=true
+PRINTFUL_ORDER_SUFFIX=-IMAGETEST1
+STATE_FILE=./data/state-imagetest1.json
+PRINTFUL_MODE=draft
+```
+
+Expected result:
+
+- Actual ShipStation/Shopify mockup used as the draft preview image, if Printful honors custom preview files
+- Actual title
+- Old SKU
+- Correct size
+- Correct color
+- Placeholder artwork retained as the printable file
+
+Keep the order in draft and inspect **Print files** before confirming. The Shopify mockup must appear as `preview`, not `default`.

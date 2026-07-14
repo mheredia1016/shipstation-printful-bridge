@@ -37,6 +37,7 @@ app.get('/api/status', async (_req, res) => {
     customColor: config.printfulCustomColor,
     skuSource: config.printfulSkuSource,
     prefixTitleWithSku: config.printfulPrefixTitleWithSku,
+    useShipstationPreview: config.printfulUseShipstationPreview,
     stateFile: config.stateFile,
     shipstation: null,
     printful: null,

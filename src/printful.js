@@ -251,18 +251,30 @@ export async function buildPrintfulOrder(shipstationOrder, config) {
 
         const variantId = await resolveCatalogVariantId(item, config);
 
+        const files = [
+          {
+            // This remains the actual printable file attached to the placeholder.
+            id: Number(config.printfulCustomFileId),
+            type: 'default'
+          }
+        ];
+
+        if (config.printfulUseShipstationPreview && item.imageUrl) {
+          files.push({
+            // Preview-only mockup from ShipStation/Shopify.
+            // Do not use this as the printable artwork.
+            type: 'preview',
+            url: String(item.imageUrl).trim()
+          });
+        }
+
         return {
           external_id: reference,
           variant_id: variantId,
           quantity,
           name: title,
           sku,
-          files: [
-            {
-              id: Number(config.printfulCustomFileId),
-              type: 'default'
-            }
-          ]
+          files
         };
       }
 

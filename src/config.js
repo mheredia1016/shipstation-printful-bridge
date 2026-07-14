@@ -42,6 +42,8 @@ export function getConfig({ validateSecrets = true } = {}) {
     printfulSkuSource: (process.env.PRINTFUL_SKU_SOURCE || 'old_sku').trim().toLowerCase(),
     printfulPrefixTitleWithSku:
       String(process.env.PRINTFUL_PREFIX_TITLE_WITH_SKU || 'true').toLowerCase() === 'true',
+    printfulUseShipstationPreview:
+      String(process.env.PRINTFUL_USE_SHIPSTATION_PREVIEW || 'true').toLowerCase() === 'true',
 
     runOnStart: String(process.env.RUN_ON_START || 'true').toLowerCase() === 'true',
     pollIntervalMinutes: integer('POLL_INTERVAL_MINUTES', 10),
