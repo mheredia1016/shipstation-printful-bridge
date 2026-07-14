@@ -68,6 +68,7 @@ async function loadStatus() {
   const data = await response.json();
   el('connections').innerHTML = `
     <p class="${statusClass(data.shipstation?.connected)}">ShipStation: ${data.shipstation?.connected ? 'Connected' : 'Failed'}</p>
+    ${data.shipstation?.selectedStore ? `<p><strong>Selected store:</strong> ${data.shipstation.selectedStore.storeName} (${data.shipstation.selectedStore.storeId})</p>` : ''}
     <p class="${statusClass(data.printful?.connected)}">Printful: ${data.printful?.connected ? 'Connected' : 'Failed'}</p>
     ${data.shipstation?.error ? `<small>${data.shipstation.error}</small>` : ''}
     ${data.printful?.error ? `<small>${data.printful.error}</small>` : ''}

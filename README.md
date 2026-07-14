@@ -25,6 +25,7 @@ PORT=8080
 SHIPSTATION_API_KEY=...
 SHIPSTATION_API_SECRET=...
 SHIPSTATION_ORDER_STATUS=awaiting_shipment
+SHIPSTATION_STORE_ID=123456
 SHIPSTATION_CUSTOM_FIELD_VALUE=Printful
 SHIPSTATION_PAGE_SIZE=100
 SHIPSTATION_MAX_PAGES=10
@@ -68,9 +69,10 @@ The dashboard verifies the API token. If your token is store-scoped, no Store ID
 
 An order is eligible only when:
 
-1. Its ShipStation status matches `SHIPSTATION_ORDER_STATUS`.
-2. `advancedOptions.customField1` equals `Printful`.
-3. Every item SKU has an active mapping.
+1. It belongs to `SHIPSTATION_STORE_ID`.
+2. Its ShipStation status matches `SHIPSTATION_ORDER_STATUS`.
+3. `advancedOptions.customField1` equals `Printful`.
+4. Every item SKU has an active mapping.
 
 ## 5. Create Printful drafts
 
@@ -130,3 +132,16 @@ Version 1:
 - Provides a basic dashboard
 
 Tracking updates from Printful back to ShipStation are not included in this first version. Add them only after order creation is verified.
+
+
+## Finding the ShipStation Store ID
+
+After deployment, open `/api/status`. The `shipstation.stores` section lists every connected ShipStation store with its `storeId` and `storeName`.
+
+Set the selected value in Railway:
+
+```env
+SHIPSTATION_STORE_ID=123456
+```
+
+The importer passes this value as the ShipStation Orders API `storeId` filter, so orders from other ShipStation stores are ignored.

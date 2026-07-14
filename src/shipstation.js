@@ -29,10 +29,22 @@ async function request(path, config, options = {}) {
   return body;
 }
 
+export async function listStores(config) {
+  const result = await request('/stores', config);
+  return Array.isArray(result) ? result : [];
+}
+
 export async function verifyShipStation(config) {
-  const result = await request('/orders?pageSize=1&page=1', config);
+  const [result, stores] = await Promise.all([
+    request(`/orders?pageSize=1&page=1&storeId=${encodeURIComponent(config.shipstationStoreId)}`, config),
+    listStores(config)
+  ]);
+  const selectedStore = stores.find(store => String(store.storeId) === String(config.shipstationStoreId)) || null;
   return {
     connected: true,
+    selectedStoreId: config.shipstationStoreId,
+    selectedStore,
+    stores,
     returnedOrders: Array.isArray(result.orders) ? result.orders.length : 0,
     totalOrders: Number(result.total || 0)
   };
@@ -45,6 +57,7 @@ export async function listCandidateOrders(config) {
   for (let page = 1; page <= config.maxPages; page += 1) {
     const params = new URLSearchParams({
       orderStatus: config.shipstationOrderStatus,
+      storeId: String(config.shipstationStoreId),
       pageSize: String(config.pageSize),
       page: String(page),
       sortBy: 'OrderDate',

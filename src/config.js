@@ -23,6 +23,7 @@ export function getConfig({ validateSecrets = true } = {}) {
     shipstationApiKey: validateSecrets ? required('SHIPSTATION_API_KEY') : process.env.SHIPSTATION_API_KEY,
     shipstationApiSecret: validateSecrets ? required('SHIPSTATION_API_SECRET') : process.env.SHIPSTATION_API_SECRET,
     shipstationOrderStatus: process.env.SHIPSTATION_ORDER_STATUS || 'awaiting_shipment',
+    shipstationStoreId: required('SHIPSTATION_STORE_ID'),
     customFieldValue: process.env.SHIPSTATION_CUSTOM_FIELD_VALUE || 'Printful',
     pageSize: Math.min(integer('SHIPSTATION_PAGE_SIZE', 100), 500),
     maxPages: integer('SHIPSTATION_MAX_PAGES', 10),
