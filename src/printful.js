@@ -7,7 +7,7 @@ async function request(path, config, options = {}) {
       Accept: 'application/json',
       'Content-Type': 'application/json',
       Authorization: `Bearer ${config.printfulToken}`,
-      'X-PF-Store-Id': String(config.printfulStoreId),
+      ...(config.printfulStoreId ? {'X-PF-Store-Id': String(config.printfulStoreId)} : {}),
       ...(options.headers || {})
     }
   });
@@ -28,11 +28,8 @@ async function request(path, config, options = {}) {
 }
 
 export async function verifyPrintful(config) {
-  const body = await request(`/stores/${encodeURIComponent(config.printfulStoreId)}`, config);
-  return {
-    connected: true,
-    store: body.result || body
-  };
+  const body = await request(`/stores`, config);
+  return {connected:true, store: body.result || body};
 }
 
 function compact(object) {

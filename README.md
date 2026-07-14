@@ -30,7 +30,6 @@ SHIPSTATION_PAGE_SIZE=100
 SHIPSTATION_MAX_PAGES=10
 
 PRINTFUL_API_TOKEN=...
-PRINTFUL_STORE_ID=...
 
 PRINTFUL_MODE=preview
 RUN_ON_START=true
@@ -65,7 +64,7 @@ Requirements:
 
 Open the Railway public URL.
 
-The dashboard verifies both API connections. Press **Run Now**. With `PRINTFUL_MODE=preview`, the importer only displays matching orders and mapping errors.
+The dashboard verifies the API token. If your token is store-scoped, no Store ID is required. Press **Run Now**. With `PRINTFUL_MODE=preview`, the importer only displays matching orders and mapping errors.
 
 An order is eligible only when:
 

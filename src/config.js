@@ -28,7 +28,7 @@ export function getConfig({ validateSecrets = true } = {}) {
     maxPages: integer('SHIPSTATION_MAX_PAGES', 10),
 
     printfulToken: validateSecrets ? required('PRINTFUL_API_TOKEN') : process.env.PRINTFUL_API_TOKEN,
-    printfulStoreId: validateSecrets ? required('PRINTFUL_STORE_ID') : process.env.PRINTFUL_STORE_ID,
+    printfulStoreId: process.env.PRINTFUL_STORE_ID || '',
     printfulMode: mode,
 
     runOnStart: String(process.env.RUN_ON_START || 'true').toLowerCase() === 'true',
