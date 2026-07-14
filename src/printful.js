@@ -26,6 +26,83 @@ async function request(path, config, options = {}) {
   return body;
 }
 
+
+let catalogVariantCache = null;
+
+function normalizeSize(value) {
+  const raw = String(value || '').trim().toLowerCase().replace(/\s+/g, '');
+
+  const aliases = {
+    'small': 'S',
+    's': 'S',
+    'medium': 'M',
+    'm': 'M',
+    'large': 'L',
+    'l': 'L',
+    'x-large': 'XL',
+    'xlarge': 'XL',
+    'xl': 'XL',
+    'xx-large': '2XL',
+    'xxlarge': '2XL',
+    '2xl': '2XL',
+    'xxx-large': '3XL',
+    'xxxlarge': '3XL',
+    '3xl': '3XL',
+    'xxxx-large': '4XL',
+    'xxxxlarge': '4XL',
+    '4xl': '4XL',
+    'xxxxx-large': '5XL',
+    'xxxxxlarge': '5XL',
+    '5xl': '5XL'
+  };
+
+  return aliases[raw] || String(value || '').trim().toUpperCase();
+}
+
+async function getCatalogVariants(config) {
+  if (catalogVariantCache) return catalogVariantCache;
+
+  const body = await request(`/products/${encodeURIComponent(config.printfulCustomProductId)}`, config);
+  const result = body.result || body;
+  const variants = Array.isArray(result.variants) ? result.variants : [];
+
+  if (!variants.length) {
+    throw new Error(`No catalog variants returned for Printful product ${config.printfulCustomProductId}.`);
+  }
+
+  catalogVariantCache = variants;
+  return variants;
+}
+
+async function resolveCatalogVariantId(item, config) {
+  const orderedSize = normalizeSize(getOption(item, ['size', 'size property']));
+  const wantedColor = String(config.printfulCustomColor || 'Black').trim().toLowerCase();
+
+  if (!orderedSize) {
+    if (config.printfulCustomCatalogVariantId) {
+      return Number(config.printfulCustomCatalogVariantId);
+    }
+    throw new Error(`No size found for SKU ${item.sku || '(no SKU)'}.`);
+  }
+
+  const variants = await getCatalogVariants(config);
+
+  const match = variants.find(variant => {
+    const size = normalizeSize(variant.size);
+    const color = String(variant.color || '').trim().toLowerCase();
+    return size === orderedSize && color === wantedColor;
+  });
+
+  if (!match) {
+    throw new Error(
+      `No ${config.printfulCustomColor} catalog variant found for size ${orderedSize} ` +
+      `on Printful product ${config.printfulCustomProductId} (SKU ${item.sku || '(no SKU)'}).`
+    );
+  }
+
+  return Number(match.id);
+}
+
 export async function verifyPrintful(config) {
   const body = await request('/stores', config);
   return {
@@ -51,6 +128,27 @@ function getOption(item, wantedNames) {
   }
 
   return '';
+}
+
+
+function getOldSku(item) {
+  return getOption(item, ['old sku', 'old_sku', 'oldsku']);
+}
+
+function chooseVisibleSku(item, config) {
+  const shopifySku = String(item.sku || '').trim();
+  const oldSku = getOldSku(item);
+
+  switch (config.printfulSkuSource) {
+    case 'shopify':
+      return shopifySku;
+    case 'both':
+      if (oldSku && shopifySku) return `${oldSku} (${shopifySku})`;
+      return oldSku || shopifySku;
+    case 'old_sku':
+    default:
+      return oldSku || shopifySku;
+  }
 }
 
 function isRealProductItem(item) {
@@ -110,7 +208,7 @@ function buildShipStationNotes(order) {
   return lines.join('\n').slice(0, 9500);
 }
 
-export function buildPrintfulOrder(shipstationOrder, config) {
+export async function buildPrintfulOrder(shipstationOrder, config) {
   const address = shipstationOrder.shipTo || {};
   const originalOrderNumber = String(shipstationOrder.orderNumber || shipstationOrder.orderId);
   const uniqueExternalId =
@@ -136,23 +234,26 @@ export function buildPrintfulOrder(shipstationOrder, config) {
       phone: address.phone,
       email: shipstationOrder.customerEmail
     }),
-    items: realItems.map((item, index) => {
-      const title = String(item.name || `Item ${index + 1}`).trim();
-      const sku = String(item.sku || '').trim();
+    items: await Promise.all(realItems.map(async (item, index) => {
+      const originalTitle = String(item.name || `Item ${index + 1}`).trim();
+      const sku = chooseVisibleSku(item, config);
+      const title =
+        config.printfulPrefixTitleWithSku && sku
+          ? `${sku} • ${originalTitle}`.slice(0, 180)
+          : originalTitle;
       const quantity = Math.max(1, Number(item.quantity || 1));
       const reference = itemReference(item, index);
 
       if (config.printfulUseCustomItems) {
-        if (!config.printfulCustomCatalogVariantId) {
-          throw new Error('PRINTFUL_CUSTOM_CATALOG_VARIANT_ID is required when PRINTFUL_USE_CUSTOM_ITEMS=true.');
-        }
         if (!config.printfulCustomFileId) {
           throw new Error('PRINTFUL_CUSTOM_FILE_ID is required when PRINTFUL_USE_CUSTOM_ITEMS=true.');
         }
 
+        const variantId = await resolveCatalogVariantId(item, config);
+
         return {
           external_id: reference,
-          variant_id: Number(config.printfulCustomCatalogVariantId),
+          variant_id: variantId,
           quantity,
           name: title,
           sku,
@@ -174,7 +275,7 @@ export function buildPrintfulOrder(shipstationOrder, config) {
         sync_variant_id: Number(config.printfulPlaceholderSyncVariantId),
         quantity
       };
-    }),
+    })),
     gift: {
       subject: `ShipStation Order ${originalOrderNumber}`,
       message: buildShipStationNotes(shipstationOrder)

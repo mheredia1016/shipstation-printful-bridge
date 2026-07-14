@@ -69,7 +69,7 @@ export async function runImport(config, { forceOrderId = null } = {}) {
       }
 
       try {
-        const payload = buildPrintfulOrder(order, config);
+        const payload = await buildPrintfulOrder(order, config);
         summary.payloadPreview = payload;
 
         if (config.printfulMode === 'preview') {

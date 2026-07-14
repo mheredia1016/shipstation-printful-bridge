@@ -1,4 +1,4 @@
-# ShipStation → Printful Bridge v2.1
+# ShipStation → Printful Bridge v2.3
 
 This version imports ShipStation orders into Printful as unconfirmed drafts.
 
@@ -121,3 +121,71 @@ In this mode, each Printful order line is sent as a custom catalog item with:
 - print file ID = 318537690
 
 This is a test. Keep orders in draft and inspect one before confirming. The file ID is the placeholder artwork already attached to the placeholder product. Do not confirm a draft until the displayed product and print file are verified.
+
+
+## v2.2 correct visible size
+
+Printful displays size and color from the selected catalog variant. Version 2.2 fetches all variants for the configured catalog product and chooses the matching size for each ShipStation item.
+
+Use:
+
+```env
+PRINTFUL_USE_CUSTOM_ITEMS=true
+PRINTFUL_CUSTOM_PRODUCT_ID=438
+PRINTFUL_CUSTOM_COLOR=Black
+PRINTFUL_CUSTOM_FILE_ID=318537690
+
+PRINTFUL_ORDER_SUFFIX=-SIZETEST1
+STATE_FILE=./data/state-sizetest1.json
+PRINTFUL_MODE=draft
+```
+
+Supported ShipStation size forms include:
+
+```text
+Small → S
+Medium → M
+Large → L
+X-Large → XL
+XX-Large → 2XL
+XXX-Large → 3XL
+XXXX-Large → 4XL
+XXXXX-Large → 5XL
+```
+
+The product title and SKU remain custom, while Printful's visible Size field now comes from the matching Gildan 5000 catalog variant.
+
+
+## v2.3 legacy SKU display
+
+Version 2.3 reads the ShipStation line-item option named `old sku`.
+
+Recommended Railway settings:
+
+```env
+PRINTFUL_SKU_SOURCE=old_sku
+PRINTFUL_PREFIX_TITLE_WITH_SKU=true
+
+PRINTFUL_ORDER_SUFFIX=-SKUTEST1
+STATE_FILE=./data/state-skutest1.json
+PRINTFUL_MODE=draft
+```
+
+With those settings, a product appears in Printful like:
+
+```text
+AEW4226 • Darby Allin - X T-Shirt - X-Large
+SKU: AEW4226
+Size: XL
+Color: Black
+```
+
+Supported SKU modes:
+
+```text
+old_sku  → AEW4226
+shopify  → 7582314-4
+both     → AEW4226 (7582314-4)
+```
+
+When `old sku` is missing, the bridge falls back to the current ShipStation SKU.

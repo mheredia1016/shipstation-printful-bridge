@@ -36,7 +36,12 @@ export function getConfig({ validateSecrets = true } = {}) {
     printfulUseCustomItems:
       String(process.env.PRINTFUL_USE_CUSTOM_ITEMS || 'false').toLowerCase() === 'true',
     printfulCustomCatalogVariantId: process.env.PRINTFUL_CUSTOM_CATALOG_VARIANT_ID || '',
+    printfulCustomProductId: process.env.PRINTFUL_CUSTOM_PRODUCT_ID || '438',
+    printfulCustomColor: process.env.PRINTFUL_CUSTOM_COLOR || 'Black',
     printfulCustomFileId: process.env.PRINTFUL_CUSTOM_FILE_ID || '',
+    printfulSkuSource: (process.env.PRINTFUL_SKU_SOURCE || 'old_sku').trim().toLowerCase(),
+    printfulPrefixTitleWithSku:
+      String(process.env.PRINTFUL_PREFIX_TITLE_WITH_SKU || 'true').toLowerCase() === 'true',
 
     runOnStart: String(process.env.RUN_ON_START || 'true').toLowerCase() === 'true',
     pollIntervalMinutes: integer('POLL_INTERVAL_MINUTES', 10),
