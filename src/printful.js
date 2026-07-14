@@ -136,11 +136,45 @@ export function buildPrintfulOrder(shipstationOrder, config) {
       phone: address.phone,
       email: shipstationOrder.customerEmail
     }),
-    items: realItems.map((item, index) => ({
-      external_id: itemReference(item, index),
-      sync_variant_id: Number(config.printfulPlaceholderSyncVariantId),
-      quantity: Math.max(1, Number(item.quantity || 1))
-    })),
+    items: realItems.map((item, index) => {
+      const title = String(item.name || `Item ${index + 1}`).trim();
+      const sku = String(item.sku || '').trim();
+      const quantity = Math.max(1, Number(item.quantity || 1));
+      const reference = itemReference(item, index);
+
+      if (config.printfulUseCustomItems) {
+        if (!config.printfulCustomCatalogVariantId) {
+          throw new Error('PRINTFUL_CUSTOM_CATALOG_VARIANT_ID is required when PRINTFUL_USE_CUSTOM_ITEMS=true.');
+        }
+        if (!config.printfulCustomFileId) {
+          throw new Error('PRINTFUL_CUSTOM_FILE_ID is required when PRINTFUL_USE_CUSTOM_ITEMS=true.');
+        }
+
+        return {
+          external_id: reference,
+          variant_id: Number(config.printfulCustomCatalogVariantId),
+          quantity,
+          name: title,
+          sku,
+          files: [
+            {
+              id: Number(config.printfulCustomFileId),
+              type: 'default'
+            }
+          ]
+        };
+      }
+
+      if (!config.printfulPlaceholderSyncVariantId) {
+        throw new Error('PRINTFUL_PLACEHOLDER_SYNC_VARIANT_ID is required for synced-placeholder mode.');
+      }
+
+      return {
+        external_id: reference,
+        sync_variant_id: Number(config.printfulPlaceholderSyncVariantId),
+        quantity
+      };
+    }),
     gift: {
       subject: `ShipStation Order ${originalOrderNumber}`,
       message: buildShipStationNotes(shipstationOrder)

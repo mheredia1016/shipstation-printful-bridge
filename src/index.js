@@ -31,6 +31,8 @@ app.get('/api/status', async (_req, res) => {
     mode: config.printfulMode,
     customFieldValue: config.customFieldValue,
     orderSuffix: config.printfulOrderSuffix,
+    customItemMode: config.printfulUseCustomItems,
+    customCatalogVariantId: config.printfulCustomCatalogVariantId || null,
     stateFile: config.stateFile,
     shipstation: null,
     printful: null,
@@ -72,6 +74,7 @@ app.listen(config.port, () => {
   console.log(`Mode: ${config.printfulMode}`);
   console.log(`Matching Custom Field 1: ${config.customFieldValue}`);
   console.log(`Printful order suffix: ${config.printfulOrderSuffix || '(none)'}`);
+  console.log(`Printful item mode: ${config.printfulUseCustomItems ? 'custom item' : 'synced placeholder'}`);
 
   if (config.runOnStart) {
     runImport(config)

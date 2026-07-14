@@ -32,7 +32,11 @@ export function getConfig({ validateSecrets = true } = {}) {
     printfulToken: validateSecrets ? required('PRINTFUL_API_TOKEN') : process.env.PRINTFUL_API_TOKEN,
     printfulMode: mode,
     printfulOrderSuffix: process.env.PRINTFUL_ORDER_SUFFIX || '',
-    printfulPlaceholderSyncVariantId: required('PRINTFUL_PLACEHOLDER_SYNC_VARIANT_ID'),
+    printfulPlaceholderSyncVariantId: process.env.PRINTFUL_PLACEHOLDER_SYNC_VARIANT_ID || '',
+    printfulUseCustomItems:
+      String(process.env.PRINTFUL_USE_CUSTOM_ITEMS || 'false').toLowerCase() === 'true',
+    printfulCustomCatalogVariantId: process.env.PRINTFUL_CUSTOM_CATALOG_VARIANT_ID || '',
+    printfulCustomFileId: process.env.PRINTFUL_CUSTOM_FILE_ID || '',
 
     runOnStart: String(process.env.RUN_ON_START || 'true').toLowerCase() === 'true',
     pollIntervalMinutes: integer('POLL_INTERVAL_MINUTES', 10),

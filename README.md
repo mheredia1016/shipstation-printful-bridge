@@ -1,4 +1,4 @@
-# ShipStation → Printful Bridge v2.0
+# ShipStation → Printful Bridge v2.1
 
 This version imports ShipStation orders into Printful as unconfirmed drafts.
 
@@ -96,3 +96,28 @@ The Printful gift message includes:
 - Type of Garment
 
 Blank-SKU add-on lines such as `Shop10`, `AEW_89588`, or numeric-only references are ignored.
+
+
+## v2.1 custom-item title/SKU test
+
+Set these Railway variables:
+
+```env
+PRINTFUL_USE_CUSTOM_ITEMS=true
+PRINTFUL_CUSTOM_CATALOG_VARIANT_ID=11548
+PRINTFUL_CUSTOM_FILE_ID=318537690
+
+PRINTFUL_ORDER_SUFFIX=-CUSTOMTEST1
+STATE_FILE=./data/state-customtest1.json
+PRINTFUL_MODE=draft
+```
+
+In this mode, each Printful order line is sent as a custom catalog item with:
+
+- `name` = actual ShipStation product title
+- `sku` = actual ShipStation SKU
+- `external_id` = title, SKU, size and color
+- `variant_id` = 11548
+- print file ID = 318537690
+
+This is a test. Keep orders in draft and inspect one before confirming. The file ID is the placeholder artwork already attached to the placeholder product. Do not confirm a draft until the displayed product and print file are verified.

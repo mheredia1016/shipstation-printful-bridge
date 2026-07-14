@@ -92,7 +92,10 @@ async function loadStatus() {
   `;
 
   el('mode').innerHTML = `<strong>${String(data.mode || '').toUpperCase()}</strong>`;
-  el('suffix').innerHTML = `<p><strong>Suffix:</strong> ${data.orderSuffix || '(none)'}</p>`;
+  el('suffix').innerHTML = `
+    <p><strong>Suffix:</strong> ${data.orderSuffix || '(none)'}</p>
+    <p><strong>Item mode:</strong> ${data.customItemMode ? 'Custom title/SKU test' : 'Synced placeholder'}</p>
+  `;
   if (data.lastRun) render(data.lastRun);
 }
 
