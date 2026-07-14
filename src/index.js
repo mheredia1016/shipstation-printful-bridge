@@ -2,12 +2,17 @@ import express from 'express';
 import { getConfig } from './config.js';
 import { verifyShipStation } from './shipstation.js';
 import { verifyPrintful } from './printful.js';
-import { runImport, getLastRun } from './runner.js';
+import {
+  runImport,
+  runTrackingSync,
+  getLastRun,
+  getLastTrackingRun
+} from './runner.js';
 
 const config = getConfig();
 const app = express();
 
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '2mb' }));
 app.use(express.static('public'));
 
 function requireAdmin(req, res, next) {
@@ -22,32 +27,21 @@ app.get('/health', (_req, res) => {
     ok: true,
     mode: config.printfulMode,
     uptimeSeconds: Math.round(process.uptime()),
-    lastRun: getLastRun()?.finishedAt || null
+    lastImport: getLastRun()?.finishedAt || null,
+    lastTrackingSync: getLastTrackingRun()?.finishedAt || null
   });
 });
 
 app.get('/api/status', async (_req, res) => {
   const result = {
     mode: config.printfulMode,
-    customFieldValue: config.customFieldValue,
-    orderSuffix: config.printfulOrderSuffix,
-    externalIdPrefix: config.printfulExternalIdPrefix,
-    printfulRequestDelayMs: config.printfulRequestDelayMs,
-    apiMaxRetries: config.apiMaxRetries,
-    customItemMode: config.printfulUseCustomItems,
-    customCatalogVariantId: config.printfulCustomCatalogVariantId || null,
-    customProductId: config.printfulCustomProductId,
-    customColor: config.printfulCustomColor,
-    skuSource: config.printfulSkuSource,
-    prefixTitleWithSku: config.printfulPrefixTitleWithSku,
-    useShipstationPreview: config.printfulUseShipstationPreview,
-    useProductImageAsPrintFile: config.printfulUseProductImageAsPrintFile,
-    fallbackColor: config.printfulFallbackColor,
-    reviewPrefix: config.printfulReviewPrefix,
     stateFile: config.stateFile,
+    notifyCustomer: config.shipstationNotifyCustomer,
+    notifySalesChannel: config.shipstationNotifySalesChannel,
     shipstation: null,
     printful: null,
-    lastRun: getLastRun()
+    lastImport: getLastRun(),
+    lastTrackingSync: getLastTrackingRun()
   };
 
   try {
@@ -65,12 +59,17 @@ app.get('/api/status', async (_req, res) => {
   res.json(result);
 });
 
-app.post('/api/run', requireAdmin, async (req, res) => {
+app.post('/api/run', requireAdmin, async (_req, res) => {
   try {
-    const result = await runImport(config, {
-      forceOrderId: req.body?.orderId || null
-    });
-    res.json(result);
+    res.json(await runImport(config));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/sync-tracking', requireAdmin, async (_req, res) => {
+  try {
+    res.json(await runTrackingSync(config));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -80,35 +79,39 @@ app.get('/api/last-run', (_req, res) => {
   res.json(getLastRun() || { message: 'No import has run yet.' });
 });
 
+app.get('/api/last-tracking-run', (_req, res) => {
+  res.json(getLastTrackingRun() || { message: 'No tracking sync has run yet.' });
+});
+
 app.listen(config.port, () => {
-  console.log(`ShipStation → Printful bridge listening on port ${config.port}`);
+  console.log(`ShipStation → Printful bridge v3.0 listening on port ${config.port}`);
   console.log(`Mode: ${config.printfulMode}`);
-  console.log(`Matching Custom Field 1: ${config.customFieldValue}`);
-  console.log(`Printful external ID prefix: ${config.printfulExternalIdPrefix}`);
-  console.log(`Printful order suffix: ${config.printfulOrderSuffix || '(none)'}`);
-  console.log(`Printful request delay: ${config.printfulRequestDelayMs}ms`);
-  console.log(`API max retries: ${config.apiMaxRetries}`);
-  console.log(`Printful item mode: ${config.printfulUseCustomItems ? 'custom item' : 'synced placeholder'}`);
+  console.log(`Visible Printful order number: ShipStation order number`);
+  console.log(`Tracking → ShipStation customer notification: ${config.shipstationNotifyCustomer}`);
+  console.log(`Tracking → Shopify/sales channel notification: ${config.shipstationNotifySalesChannel}`);
 
   if (config.runOnStart) {
     runImport(config)
-      .then(result => {
-        console.log(
-          `Initial scan complete: ${result.found} found, ${result.submitted} submitted, ` +
-          `${result.skipped} skipped, ${result.failed} failed.`
-        );
-      })
-      .catch(error => console.error('Initial scan failed:', error));
+      .then(result => console.log(
+        `Initial import: ${result.groupedOrdersFound} orders, ` +
+        `${result.submitted} submitted, ${result.failed} failed.`
+      ))
+      .catch(error => console.error('Initial import failed:', error));
+
+    setTimeout(() => {
+      runTrackingSync(config)
+        .then(result => console.log(
+          `Initial tracking sync: ${result.shipstationOrdersMarked} ShipStation order(s) marked shipped.`
+        ))
+        .catch(error => console.error('Initial tracking sync failed:', error));
+    }, 15000).unref();
   }
 
   setInterval(() => {
-    runImport(config)
-      .then(result => {
-        console.log(
-          `Scheduled scan complete: ${result.found} found, ${result.submitted} submitted, ` +
-          `${result.skipped} skipped, ${result.failed} failed.`
-        );
-      })
-      .catch(error => console.error('Scheduled scan failed:', error));
+    runImport(config).catch(error => console.error('Scheduled import failed:', error));
   }, config.pollIntervalMinutes * 60 * 1000).unref();
+
+  setInterval(() => {
+    runTrackingSync(config).catch(error => console.error('Scheduled tracking sync failed:', error));
+  }, config.trackingPollMinutes * 60 * 1000).unref();
 });

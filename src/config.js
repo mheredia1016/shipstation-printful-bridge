@@ -12,6 +12,12 @@ function integer(name, fallback) {
   return value;
 }
 
+function boolean(name, fallback) {
+  const value = process.env[name];
+  if (value == null || value === '') return fallback;
+  return String(value).toLowerCase() === 'true';
+}
+
 export function getConfig({ validateSecrets = true } = {}) {
   const mode = (process.env.PRINTFUL_MODE || 'preview').trim().toLowerCase();
   if (!['preview', 'draft', 'live'].includes(mode)) {
@@ -28,33 +34,29 @@ export function getConfig({ validateSecrets = true } = {}) {
     customFieldValue: process.env.SHIPSTATION_CUSTOM_FIELD_VALUE || 'Printful',
     pageSize: Math.min(integer('SHIPSTATION_PAGE_SIZE', 100), 500),
     maxPages: integer('SHIPSTATION_MAX_PAGES', 10),
+    shipstationNotifyCustomer: boolean('SHIPSTATION_NOTIFY_CUSTOMER', false),
+    shipstationNotifySalesChannel: boolean('SHIPSTATION_NOTIFY_SALES_CHANNEL', true),
+    shipstationFallbackCarrierCode: process.env.SHIPSTATION_FALLBACK_CARRIER_CODE || 'other',
 
     printfulToken: validateSecrets ? required('PRINTFUL_API_TOKEN') : process.env.PRINTFUL_API_TOKEN,
     printfulMode: mode,
     printfulOrderSuffix: process.env.PRINTFUL_ORDER_SUFFIX || '',
-    printfulExternalIdPrefix: process.env.PRINTFUL_EXTERNAL_ID_PREFIX || 'SS',
     printfulRequestDelayMs: integer('PRINTFUL_REQUEST_DELAY_MS', 1200),
     apiMaxRetries: integer('API_MAX_RETRIES', 6),
-    printfulPlaceholderSyncVariantId: process.env.PRINTFUL_PLACEHOLDER_SYNC_VARIANT_ID || '',
-    printfulUseCustomItems:
-      String(process.env.PRINTFUL_USE_CUSTOM_ITEMS || 'false').toLowerCase() === 'true',
+    printfulUseCustomItems: boolean('PRINTFUL_USE_CUSTOM_ITEMS', true),
     printfulCustomCatalogVariantId: process.env.PRINTFUL_CUSTOM_CATALOG_VARIANT_ID || '',
     printfulCustomProductId: process.env.PRINTFUL_CUSTOM_PRODUCT_ID || '438',
-    printfulCustomColor: process.env.PRINTFUL_CUSTOM_COLOR || 'Black',
     printfulFallbackColor: process.env.PRINTFUL_FALLBACK_COLOR || 'Black',
     printfulCustomFileId: process.env.PRINTFUL_CUSTOM_FILE_ID || '',
-    printfulUseProductImageAsPrintFile:
-      String(process.env.PRINTFUL_USE_PRODUCT_IMAGE_AS_PRINT_FILE || 'false').toLowerCase() === 'true',
+    printfulUseProductImageAsPrintFile: boolean('PRINTFUL_USE_PRODUCT_IMAGE_AS_PRINT_FILE', true),
     printfulReviewPrefix: process.env.PRINTFUL_REVIEW_PREFIX || '',
     printfulSkuSource: (process.env.PRINTFUL_SKU_SOURCE || 'old_sku').trim().toLowerCase(),
-    printfulPrefixTitleWithSku:
-      String(process.env.PRINTFUL_PREFIX_TITLE_WITH_SKU || 'true').toLowerCase() === 'true',
-    printfulUseShipstationPreview:
-      String(process.env.PRINTFUL_USE_SHIPSTATION_PREVIEW || 'true').toLowerCase() === 'true',
+    printfulPrefixTitleWithSku: boolean('PRINTFUL_PREFIX_TITLE_WITH_SKU', true),
 
-    runOnStart: String(process.env.RUN_ON_START || 'true').toLowerCase() === 'true',
+    runOnStart: boolean('RUN_ON_START', true),
     pollIntervalMinutes: integer('POLL_INTERVAL_MINUTES', 10),
+    trackingPollMinutes: integer('TRACKING_POLL_MINUTES', 10),
     adminToken: process.env.ADMIN_TOKEN || '',
-    stateFile: process.env.STATE_FILE || './data/state.json'
+    stateFile: process.env.STATE_FILE || '/data/state.json'
   };
 }

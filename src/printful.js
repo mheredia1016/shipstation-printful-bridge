@@ -278,27 +278,34 @@ function buildShipStationNotes(order) {
   return lines.join('\n').slice(0, 9500);
 }
 
-export async function buildPrintfulOrder(shipstationOrder, config) {
-  const address = shipstationOrder.shipTo || {};
-  const originalOrderNumber = String(shipstationOrder.orderNumber || shipstationOrder.orderId);
+export async function buildPrintfulOrder(group, config) {
+  const primaryOrder = group.orders[0];
+  const address = primaryOrder.shipTo || {};
+  const originalOrderNumber = String(group.orderNumber);
   const safeSuffix = String(config.printfulOrderSuffix || '')
     .replace(/[^A-Za-z0-9_-]/g, '')
-    .slice(0, 20);
-  const safePrefix = String(config.printfulExternalIdPrefix || 'SS')
-    .replace(/[^A-Za-z0-9_-]/g, '')
-    .slice(0, 10);
+    .slice(0, 16);
 
-  // Printful can reject long or complex external IDs.
-  // Use the unique numeric ShipStation order ID with a short optional suffix.
-  const uniqueExternalId = `${safePrefix}${shipstationOrder.orderId}${safeSuffix}`;
+  // Final production behavior: visible Printful order number matches ShipStation.
+  const externalId = `${originalOrderNumber}${safeSuffix}`;
 
-  const realItems = (shipstationOrder.items || []).filter(isRealProductItem);
+  const realItems = group.orders
+    .flatMap(order => order.items || [])
+    .filter(isRealProductItem);
+
   if (realItems.length === 0) {
     throw new Error(`ShipStation order ${originalOrderNumber} has no usable product items.`);
   }
 
+  const notesOrder = {
+    ...primaryOrder,
+    orderNumber: originalOrderNumber,
+    orderId: group.shipstationOrderIds.join(', '),
+    items: realItems
+  };
+
   return {
-    external_id: uniqueExternalId,
+    external_id: externalId,
     shipping: 'STANDARD',
     recipient: compact({
       name: address.name,
@@ -310,7 +317,7 @@ export async function buildPrintfulOrder(shipstationOrder, config) {
       country_code: address.country,
       zip: address.postalCode,
       phone: address.phone,
-      email: shipstationOrder.customerEmail
+      email: primaryOrder.customerEmail
     }),
     items: await Promise.all(realItems.map(async (item, index) => {
       const originalTitle = String(item.name || `Item ${index + 1}`).trim();
@@ -322,71 +329,39 @@ export async function buildPrintfulOrder(shipstationOrder, config) {
       const title = `${config.printfulReviewPrefix || ''}${baseTitle}`.slice(0, 180);
       const quantity = Math.max(1, Number(item.quantity || 1));
       const reference = itemReference(item, index);
+      const variantId = await resolveCatalogVariantId(item, config);
 
-      if (config.printfulUseCustomItems) {
-        const variantId = await resolveCatalogVariantId(item, config);
-
-        const files = [];
-
-        if (config.printfulUseProductImageAsPrintFile) {
-          if (!item.imageUrl) {
-            throw new Error(`No ShipStation imageUrl found for SKU ${item.sku || '(no SKU)'}.`);
-          }
-
-          files.push({
-            // User-approved test mode: Shopify mockup becomes the default print file.
-            type: 'default',
-            url: String(item.imageUrl).trim()
-          });
-        } else {
-          if (!config.printfulCustomFileId) {
-            throw new Error(
-              'PRINTFUL_CUSTOM_FILE_ID is required when product images are not used as print files.'
-            );
-          }
-
-          files.push({
-            id: Number(config.printfulCustomFileId),
-            type: 'default'
-          });
+      const files = [];
+      if (config.printfulUseProductImageAsPrintFile) {
+        if (!item.imageUrl) {
+          throw new Error(`No ShipStation imageUrl found for SKU ${item.sku || '(no SKU)'}.`);
         }
-
-        if (
-          !config.printfulUseProductImageAsPrintFile &&
-          config.printfulUseShipstationPreview &&
-          item.imageUrl
-        ) {
-          files.push({
-            type: 'preview',
-            url: String(item.imageUrl).trim()
-          });
-        }
-
-        return {
-          external_id: reference,
-          variant_id: variantId,
-          quantity,
-          name: title,
-          sku,
-          files
-        };
-      }
-
-      if (!config.printfulPlaceholderSyncVariantId) {
-        throw new Error('PRINTFUL_PLACEHOLDER_SYNC_VARIANT_ID is required for synced-placeholder mode.');
+        files.push({ type: 'default', url: String(item.imageUrl).trim() });
+      } else if (config.printfulCustomFileId) {
+        files.push({ id: Number(config.printfulCustomFileId), type: 'default' });
+      } else {
+        throw new Error('A default Printful file is required.');
       }
 
       return {
         external_id: reference,
-        sync_variant_id: Number(config.printfulPlaceholderSyncVariantId),
-        quantity
+        variant_id: variantId,
+        quantity,
+        name: title,
+        sku,
+        files
       };
     })),
     gift: {
       subject: `ShipStation Order ${originalOrderNumber}`,
-      message: buildShipStationNotes(shipstationOrder)
+      message: buildShipStationNotes(notesOrder)
     }
   };
+}
+
+export async function getPrintfulOrder(orderId, config) {
+  const body = await request(`/orders/${encodeURIComponent(orderId)}`, config);
+  return body.result || body;
 }
 
 export async function findByExternalId(externalId, config) {

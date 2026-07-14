@@ -9,6 +9,7 @@ async function request(path, config, options = {}) {
     ...options,
     headers: {
       Accept: 'application/json',
+      'Content-Type': 'application/json',
       Authorization: authHeader(config.shipstationApiKey, config.shipstationApiSecret),
       ...(options.headers || {})
     }
@@ -23,7 +24,7 @@ async function request(path, config, options = {}) {
   }
 
   if (!response.ok) {
-    throw new Error(`ShipStation ${response.status}: ${JSON.stringify(body).slice(0, 1200)}`);
+    throw new Error(`ShipStation ${response.status}: ${JSON.stringify(body).slice(0, 1400)}`);
   }
 
   return body;
@@ -47,7 +48,6 @@ export async function verifyShipStation(config) {
     connected: true,
     selectedStoreId: config.shipstationStoreId,
     selectedStore,
-    stores,
     returnedOrders: Array.isArray(result.orders) ? result.orders.length : 0,
     totalOrders: Number(result.total || 0)
   };
@@ -79,4 +79,72 @@ export async function listCandidateOrders(config) {
   }
 
   return candidates;
+}
+
+export async function listCarriers(config) {
+  const carriers = await request('/carriers', config);
+  return Array.isArray(carriers) ? carriers : [];
+}
+
+function normalizeCarrier(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
+export async function resolveCarrierCode(carrierName, config) {
+  const raw = String(carrierName || '').trim();
+  if (!raw) return config.shipstationFallbackCarrierCode;
+
+  const known = {
+    usps: 'usps',
+    ups: 'ups',
+    fedex: 'fedex',
+    dhl: 'dhl_express',
+    dhlexpress: 'dhl_express',
+    royalmail: 'royal_mail',
+    dpd: 'dpd',
+    dpduk: 'dpd',
+    evri: 'hermes',
+    hermes: 'hermes',
+    asendia: 'asendia',
+    canadapost: 'canada_post'
+  };
+
+  const normalized = normalizeCarrier(raw);
+  if (known[normalized]) return known[normalized];
+
+  try {
+    const carriers = await listCarriers(config);
+    const match = carriers.find(carrier => {
+      return (
+        normalizeCarrier(carrier.code) === normalized ||
+        normalizeCarrier(carrier.name) === normalized
+      );
+    });
+    if (match?.code) return match.code;
+  } catch (error) {
+    console.warn(`Could not load ShipStation carriers: ${error.message}`);
+  }
+
+  return config.shipstationFallbackCarrierCode;
+}
+
+export async function markOrderShipped({
+  orderId,
+  carrierCode,
+  shipDate,
+  trackingNumber
+}, config) {
+  return request('/orders/markasshipped', config, {
+    method: 'POST',
+    body: JSON.stringify({
+      orderId: Number(orderId),
+      carrierCode,
+      shipDate,
+      trackingNumber,
+      notifyCustomer: config.shipstationNotifyCustomer,
+      notifySalesChannel: config.shipstationNotifySalesChannel
+    })
+  });
 }

@@ -22,7 +22,7 @@
 </head>
 <body>
 <main>
-  <h1>ShipStation → Printful Bridge v2</h1>
+  <h1>ShipStation → Printful Bridge v3</h1>
   <p>Imports orders from the selected ShipStation store where Custom Field 1 equals <strong>Printful</strong>.</p>
 
   <div class="grid">
@@ -38,9 +38,10 @@
   </div>
 
   <section class="card">
-    <h2>Run importer</h2>
+    <h2>Actions</h2>
     <input id="token" type="password" placeholder="Admin token, if configured">
-    <button id="run">Run Now</button>
+    <button id="run">Import Orders</button>
+    <button id="syncTracking">Sync Tracking</button>
     <span id="runStatus"></span>
   </section>
 
@@ -113,6 +114,22 @@ el('run').addEventListener('click', async () => {
   const data = await response.json();
   el('runStatus').textContent = response.ok ? ' Complete.' : ` Error: ${data.error}`;
   if (response.ok) render(data);
+});
+
+el('syncTracking').addEventListener('click', async () => {
+  el('runStatus').textContent = ' Syncing tracking…';
+  const headers = { 'Content-Type':'application/json' };
+  if (el('token').value) headers['x-admin-token'] = el('token').value;
+  const response = await fetch('/api/sync-tracking', {
+    method:'POST',
+    headers,
+    body:'{}'
+  });
+  const data = await response.json();
+  el('runStatus').textContent = response.ok
+    ? ` Tracking complete: ${data.shipstationOrdersMarked || 0} ShipStation order(s) marked shipped.`
+    : ` Error: ${data.error}`;
+  el('raw').textContent = JSON.stringify(data, null, 2);
 });
 
 loadStatus().catch(error => {
