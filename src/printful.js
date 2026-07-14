@@ -52,12 +52,25 @@ function getOption(item, wantedNames) {
   return '';
 }
 
+function isRealProductItem(item) {
+  const sku = String(item.sku || '').trim();
+  const name = String(item.name || '').trim();
+
+  if (!sku) return false;
+  if (/^shop\d+$/i.test(name)) return false;
+  if (/^aew[_-]?\d+$/i.test(name)) return false;
+  if (/^\d+$/.test(name)) return false;
+
+  return true;
+}
+
 function itemReference(item, index) {
+  const title = String(item.name || `Item ${index + 1}`).trim();
   const sku = String(item.sku || `ITEM-${index + 1}`).trim();
-  const size = getOption(item, ['size']);
+  const size = getOption(item, ['size', 'size property']);
   const color = getOption(item, ['color', 'colour']);
 
-  return [sku, size, color].filter(Boolean).join(' | ').slice(0, 180);
+  return [title, `SKU ${sku}`, size, color].filter(Boolean).join(' | ').slice(0, 180);
 }
 
 function buildShipStationNotes(order) {
@@ -69,8 +82,8 @@ function buildShipStationNotes(order) {
     ''
   ];
 
-  for (const [index, item] of (order.items || []).entries()) {
-    const size = getOption(item, ['size']);
+  for (const [index, item] of (order.items || []).filter(isRealProductItem).entries()) {
+    const size = getOption(item, ['size', 'size property']);
     const color = getOption(item, ['color', 'colour']);
 
     lines.push(`${index + 1}. ${Number(item.quantity || 0)}x ${item.name || 'Unnamed item'}`);
@@ -83,7 +96,7 @@ function buildShipStationNotes(order) {
       const name = String(option.name || option.Name || '').trim();
       const value = String(option.value || option.Value || '').trim();
       if (!name || !value) continue;
-      if (['size', 'color', 'colour'].includes(name.toLowerCase())) continue;
+      if (['size', 'size property', 'color', 'colour'].includes(name.toLowerCase())) continue;
       lines.push(`${name}: ${value}`);
     }
 
@@ -95,6 +108,11 @@ function buildShipStationNotes(order) {
 
 export function buildPrintfulOrder(shipstationOrder, config) {
   const address = shipstationOrder.shipTo || {};
+  const productItems = (shipstationOrder.items || []).filter(isRealProductItem);
+
+  if (productItems.length === 0) {
+    throw new Error(`ShipStation order ${shipstationOrder.orderNumber || shipstationOrder.orderId} has no eligible product items.`);
+  }
 
   return {
     external_id: String(shipstationOrder.orderNumber || shipstationOrder.orderId),
@@ -111,9 +129,9 @@ export function buildPrintfulOrder(shipstationOrder, config) {
       phone: address.phone,
       email: shipstationOrder.customerEmail
     }),
-    items: (shipstationOrder.items || []).map((item, index) => ({
+    items: productItems.map((item, index) => ({
       // Printful still displays the placeholder product title/image/size.
-      // This reference carries the original SKU, size and color beside the line item.
+      // This reference carries the original title, SKU, size and color beside the line item.
       external_id: itemReference(item, index),
       sync_variant_id: Number(config.printfulPlaceholderSyncVariantId),
       quantity: Math.max(1, Number(item.quantity || 1))
@@ -127,6 +145,7 @@ export function buildPrintfulOrder(shipstationOrder, config) {
     }
   };
 }
+
 
 export async function findByExternalId(externalId, config) {
   try {

@@ -206,3 +206,19 @@ The order gift message also includes:
 - ShipStation product image URL, when available
 
 Printful will still display the synced placeholder's own product title, mockup, Black color and Large size on the product card. Those fields belong to the synced variant and cannot be renamed without using actual synced Printful products.
+
+
+## Version 1.6 item-detail update
+
+The bridge now:
+
+- Reads size from both `Size` and `Size Property`
+- Places the original product title, SKU, size and color in each Printful item's external reference
+- Ignores blank-SKU and common add-on lines such as `Shop10`, `AEW_89588`, and numeric-only item names
+- Keeps image URLs and all remaining options in the order message
+
+Example external item reference:
+
+```text
+Young Bucks - Skull Kick T-Shirt - Small | SKU 6402189-1 | Small | Sapphire
+```
