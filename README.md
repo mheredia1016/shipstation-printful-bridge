@@ -1,0 +1,133 @@
+# ShipStation → Printful Bridge
+
+This service scans ShipStation for orders whose **Custom Field 1** equals `Printful`, maps each SKU to a Printful catalog variant and artwork URL, and optionally creates the order in a selected Printful API store.
+
+## Safety modes
+
+- `PRINTFUL_MODE=preview` — reads and previews orders only. Nothing is created in Printful.
+- `PRINTFUL_MODE=draft` — creates unconfirmed Printful orders.
+- `PRINTFUL_MODE=live` — creates and confirms Printful orders. This can incur charges.
+
+Start in `preview`.
+
+## 1. Upload to GitHub
+
+Upload every file in this repository, preserving the folders.
+
+## 2. Deploy to Railway
+
+Create a Railway project from this GitHub repository.
+
+Add these variables:
+
+```env
+PORT=8080
+SHIPSTATION_API_KEY=...
+SHIPSTATION_API_SECRET=...
+SHIPSTATION_ORDER_STATUS=awaiting_shipment
+SHIPSTATION_CUSTOM_FIELD_VALUE=Printful
+SHIPSTATION_PAGE_SIZE=100
+SHIPSTATION_MAX_PAGES=10
+
+PRINTFUL_API_TOKEN=...
+PRINTFUL_STORE_ID=...
+
+PRINTFUL_MODE=preview
+RUN_ON_START=true
+POLL_INTERVAL_MINUTES=10
+
+ADMIN_TOKEN=choose-a-private-password
+MAPPING_FILE=./data/mappings.csv
+STATE_FILE=./data/state.json
+```
+
+Do not put secrets in `.env.example` or commit a real `.env` file.
+
+## 3. Add SKU mappings
+
+Edit `data/mappings.csv`.
+
+```csv
+sku,printful_variant_id,front_art_url,back_art_url,active
+MY-SKU-BLACK-S,4014,https://your-public-art-host.com/MY-SKU.png,,true
+MY-SKU-BLACK-M,4015,https://your-public-art-host.com/MY-SKU.png,,true
+```
+
+Requirements:
+
+- `sku` must exactly match the ShipStation item SKU, ignoring capitalization and surrounding spaces.
+- `printful_variant_id` is the Printful catalog variant ID for the exact garment/color/size.
+- `front_art_url` must be a publicly downloadable direct image URL.
+- `back_art_url` is optional.
+- `active` must be `true` for the mapping to be used.
+
+## 4. Test
+
+Open the Railway public URL.
+
+The dashboard verifies both API connections. Press **Run Now**. With `PRINTFUL_MODE=preview`, the importer only displays matching orders and mapping errors.
+
+An order is eligible only when:
+
+1. Its ShipStation status matches `SHIPSTATION_ORDER_STATUS`.
+2. `advancedOptions.customField1` equals `Printful`.
+3. Every item SKU has an active mapping.
+
+## 5. Create Printful drafts
+
+After preview results are correct, change:
+
+```env
+PRINTFUL_MODE=draft
+```
+
+Redeploy, then run one order. It will appear in Printful but remain unconfirmed.
+
+## 6. Enable live submission
+
+Only after draft testing:
+
+```env
+PRINTFUL_MODE=live
+```
+
+Live mode confirms orders and may charge the Printful billing method.
+
+## Duplicate protection
+
+Each Printful order uses:
+
+```text
+shipstation-{ShipStation order ID}
+```
+
+as its external ID. Before creating an order, the bridge checks Printful for that external ID and stores successful submissions in `data/state.json`.
+
+For durable state on Railway, attach a persistent volume and point `STATE_FILE` to that mounted location, for example:
+
+```env
+STATE_FILE=/data/state.json
+```
+
+## Endpoints
+
+- `GET /health`
+- `GET /api/status`
+- `GET /api/last-run`
+- `POST /api/run`
+
+When `ADMIN_TOKEN` is configured, send it as the `x-admin-token` header for `POST /api/run`.
+
+## Current scope
+
+Version 1:
+
+- Reads ShipStation awaiting-shipment orders
+- Filters Custom Field 1 = Printful
+- Maps ShipStation SKUs
+- Verifies the selected Printful store
+- Supports preview, draft and live modes
+- Prevents common duplicate submissions
+- Provides a basic dashboard
+
+Tracking updates from Printful back to ShipStation are not included in this first version. Add them only after order creation is verified.

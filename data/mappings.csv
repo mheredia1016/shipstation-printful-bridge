@@ -1,0 +1,3 @@
+sku,printful_variant_id,front_art_url,back_art_url,active
+EXAMPLE-SKU-BLACK-S,4014,https://example.com/art/front.png,,false
+EXAMPLE-SKU-BLACK-M,4015,https://example.com/art/front.png,,false
