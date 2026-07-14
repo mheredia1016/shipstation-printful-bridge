@@ -1,6 +1,6 @@
 {
   "name": "shipstation-printful-bridge",
-  "version": "3.2.0",
+  "version": "3.3.0",
   "description": "ShipStation to Printful drafts with tracking returned to ShipStation and Shopify.",
   "type": "module",
   "main": "src/index.js",

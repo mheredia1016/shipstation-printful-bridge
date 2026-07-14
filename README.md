@@ -1,4 +1,4 @@
-# ShipStation → Printful Bridge v3.2
+# ShipStation → Printful Bridge v3.3
 
 Production workflow:
 
@@ -151,3 +151,19 @@ PRINTFUL_MISSING_ARTWORK_BEHAVIOR=fail
 PRINTFUL_FILE_PAGE_SIZE=100
 PRINTFUL_FILE_MAX_PAGES=100
 ```
+
+
+## v3.3 comma-separated Custom Field 1 support
+
+The importer now recognizes `Printful` as one value inside a comma-separated field.
+
+Examples that import:
+
+```text
+Printful
+Printful,PWT
+PWT,Printful
+PWT, Printful, UK
+```
+
+The logs also show how many orders were skipped because they were already recorded.

@@ -119,7 +119,8 @@ app.listen(config.port, () => {
     runImport(config)
       .then(result => console.log(
         `Initial import: ${result.groupedOrdersFound} orders, ` +
-        `${result.submitted} submitted, ${result.failed} failed.`
+        `${result.submitted} submitted, ${result.skipped} skipped, ` +
+        `${result.failed} failed.`
       ))
       .catch(error => console.error('Initial import failed:', error));
 
@@ -133,7 +134,13 @@ app.listen(config.port, () => {
   }
 
   setInterval(() => {
-    runImport(config).catch(error => console.error('Scheduled import failed:', error));
+    runImport(config)
+      .then(result => console.log(
+        `Scheduled import: ${result.groupedOrdersFound} orders, ` +
+        `${result.submitted} submitted, ${result.skipped} skipped, ` +
+        `${result.failed} failed.`
+      ))
+      .catch(error => console.error('Scheduled import failed:', error));
   }, config.pollIntervalMinutes * 60 * 1000).unref();
 
   setInterval(() => {
