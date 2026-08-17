@@ -24,6 +24,25 @@ let statusCache = {
 };
 
 app.use(express.json({ limit: '2mb' }));
+app.use((req, res, next) => {
+  const origin = req.get('origin');
+
+  if (origin === 'https://www.printful.com') {
+    res.set('Access-Control-Allow-Origin', origin);
+    res.set('Vary', 'Origin');
+    res.set('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    res.set(
+      'Access-Control-Allow-Headers',
+      'Content-Type, X-Admin-Token'
+    );
+  }
+
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+
+  next();
+});
 app.use(express.static('public'));
 
 function requireAdmin(req, res, next) {
@@ -61,6 +80,7 @@ app.get('/api/status', async (_req, res) => {
     notifyCustomer: config.shipstationNotifyCustomer,
     notifySalesChannel: config.shipstationNotifySalesChannel,
     useLibraryArtwork: config.printfulUseLibraryArtwork,
+    useArtworkMap: config.printfulUseArtworkMap,
     artworkExtension: config.printfulArtworkExtension,
     missingArtworkBehavior: config.printfulMissingArtworkBehavior,
     artworkMapFile: config.artworkMapFile,
@@ -117,6 +137,50 @@ app.post('/api/artwork-map', requireAdmin, async (req, res) => {
   }
 });
 
+
+app.post('/api/artwork-map/bulk', requireAdmin, async (req, res) => {
+  try {
+    const incoming = req.body?.mappings || req.body;
+    if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+      return res.status(400).json({
+        error: 'Expected a JSON object of SKU mappings.'
+      });
+    }
+
+    const map = await loadArtworkMap(config.artworkMapFile);
+    let imported = 0;
+    let ignored = 0;
+
+    for (const [sku, value] of Object.entries(incoming)) {
+      const fileId = Number(
+        value && typeof value === 'object'
+          ? value.fileId || value.id
+          : value
+      );
+
+      if (!sku || !Number.isInteger(fileId) || fileId <= 0) {
+        ignored += 1;
+        continue;
+      }
+
+      setArtworkFileId(map, sku, fileId, 'printful-browser-sync');
+      imported += 1;
+    }
+
+    await saveArtworkMap(config.artworkMapFile, map);
+
+    res.json({
+      ok: true,
+      file: config.artworkMapFile,
+      imported,
+      ignored,
+      totalMappings: artworkMapEntries(map).length
+    });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
 app.post('/api/run', requireAdmin, async (_req, res) => {
   try {
     res.json(await runImport(config));
@@ -142,7 +206,7 @@ app.get('/api/last-tracking-run', (_req, res) => {
 });
 
 app.listen(config.port, () => {
-  console.log(`ShipStation → Printful bridge v3.0 listening on port ${config.port}`);
+  console.log(`ShipStation → Printful bridge v3.7 listening on port ${config.port}`);
   console.log(`Mode: ${config.printfulMode}`);
   console.log(`Visible Printful order number: ShipStation order number`);
   console.log(`Tracking → ShipStation customer notification: ${config.shipstationNotifyCustomer}`);

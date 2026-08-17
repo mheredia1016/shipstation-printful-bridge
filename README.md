@@ -1,4 +1,4 @@
-# ShipStation → Printful Bridge v3.5
+# ShipStation → Printful Bridge v3.7
 
 Production workflow:
 
@@ -244,3 +244,72 @@ All other production features remain:
 - Printful tracking back to ShipStation
 - ShipStation sales-channel notification back to Shopify
 - ShipStation and Printful 429 retry handling
+
+
+## v3.6 browser-synced Printful artwork map
+
+The Printful dashboard requires your browser cookie and CSRF token, so the
+library scan runs inside your logged-in browser.
+
+The included browser helper:
+
+1. Scans `get-directory-files` page by page.
+2. Keeps exact active production PNG filenames only.
+3. Ignores `-1`, `-2`, mockup, JPG, and inactive files.
+4. Sends the finished map directly to Railway.
+5. Saves it to `/data/artwork-map.json`.
+
+Railway variables:
+
+```env
+ADMIN_TOKEN=choose-a-long-private-value
+PRINTFUL_USE_ARTWORK_MAP=true
+ARTWORK_MAP_FILE=/data/artwork-map.json
+
+# Keep the mockup as a fallback when a SKU is not yet mapped.
+PRINTFUL_USE_LIBRARY_ARTWORK=false
+PRINTFUL_USE_PRODUCT_IMAGE_AS_PRINT_FILE=true
+```
+
+Run `printful-browser-sync.txt` from the Console while logged into the
+Printful Library page.
+
+The bridge uses the synced production file ID first. When no mapping exists,
+it falls back to the Shopify mockup.
+
+
+## v3.7 dedicated Printful shipment tracking
+
+The tracking sync now calls Printful's dedicated shipment endpoint:
+
+```text
+GET /v2/orders/{printfulOrderId}/shipments
+```
+
+It reads:
+
+```text
+tracking_number
+carrier
+service
+shipment_status
+shipped_at
+tracking_url
+```
+
+and sends the shipment to ShipStation using:
+
+```text
+POST /orders/markasshipped
+```
+
+with:
+
+```text
+notifyCustomer = SHIPSTATION_NOTIFY_CUSTOMER
+notifySalesChannel = SHIPSTATION_NOTIFY_SALES_CHANNEL
+```
+
+The old embedded `order.shipments` logic remains as a fallback.
+
+No new state file is required. Keep using the existing Railway volume state file.

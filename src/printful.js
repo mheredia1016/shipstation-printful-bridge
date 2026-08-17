@@ -488,8 +488,23 @@ export async function buildPrintfulOrder(group, config) {
       const variantId = await resolveCatalogVariantId(item, config);
 
       const files = [];
+      let mappedArtworkFileId = null;
 
-      if (config.printfulUseLibraryArtwork) {
+      if (config.printfulUseArtworkMap) {
+        const artworkMap = await loadArtworkMap(config.artworkMapFile);
+        const oldSku = getOldSku(item);
+        const currentSku = String(item.sku || '').trim();
+        mappedArtworkFileId =
+          getArtworkFileId(artworkMap, oldSku) ||
+          getArtworkFileId(artworkMap, currentSku);
+      }
+
+      if (mappedArtworkFileId) {
+        files.push({
+          id: Number(mappedArtworkFileId),
+          type: 'default'
+        });
+      } else if (config.printfulUseLibraryArtwork) {
         const artwork = await resolveArtworkFile(item, config);
         if (artwork.type === 'id') {
           files.push({ id: artwork.id, type: 'default' });
@@ -521,6 +536,23 @@ export async function buildPrintfulOrder(group, config) {
       message: buildShipStationNotes(notesOrder)
     }
   };
+}
+
+
+export async function getPrintfulShipments(orderId, config) {
+  const body = await request(
+    `/v2/orders/${encodeURIComponent(orderId)}/shipments`,
+    config
+  );
+
+  // Printful v2 returns shipment rows in `data`.
+  if (Array.isArray(body?.data)) return body.data;
+
+  // Defensive fallbacks in case the response shape changes.
+  if (Array.isArray(body?.result)) return body.result;
+  if (Array.isArray(body?.shipments)) return body.shipments;
+
+  return [];
 }
 
 export async function getPrintfulOrder(orderId, config) {

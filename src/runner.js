@@ -3,7 +3,8 @@ import {
   buildPrintfulOrder,
   createOrder,
   findByExternalId,
-  getPrintfulOrder
+  getPrintfulOrder,
+  getPrintfulShipments
 } from './printful.js';
 import { loadState, saveState } from './state.js';
 
@@ -148,30 +149,54 @@ export async function runImport(config) {
   }
 }
 
-function extractShipments(order) {
-  const shipments = Array.isArray(order?.shipments) ? order.shipments : [];
-
-  return shipments
+function normalizeShipmentRows(rows) {
+  return (Array.isArray(rows) ? rows : [])
     .map((shipment, index) => ({
       key: String(
         shipment.id ||
         shipment.tracking_number ||
         shipment.trackingNumber ||
+        shipment.tracking_code ||
         index
       ),
-      carrier: shipment.carrier || shipment.carrier_name || shipment.service || '',
+      carrier:
+        shipment.carrier ||
+        shipment.carrier_name ||
+        shipment.service ||
+        shipment.shipping_method ||
+        '',
       trackingNumber:
         shipment.tracking_number ||
         shipment.trackingNumber ||
         shipment.tracking_code ||
         '',
       shipDate:
-        shipment.ship_date ||
         shipment.shipped_at ||
+        shipment.ship_date ||
+        shipment.shipDate ||
+        shipment.created_at ||
         shipment.created ||
-        new Date().toISOString()
+        new Date().toISOString(),
+      shipmentStatus:
+        shipment.shipment_status ||
+        shipment.status ||
+        '',
+      trackingUrl:
+        shipment.tracking_url ||
+        shipment.trackingUrl ||
+        '',
+      items:
+        shipment.shipment_items ||
+        shipment.items ||
+        []
     }))
     .filter(shipment => shipment.trackingNumber);
+}
+
+function extractLegacyShipments(order) {
+  return normalizeShipmentRows(
+    Array.isArray(order?.shipments) ? order.shipments : []
+  );
 }
 
 function dateOnly(value) {
@@ -207,8 +232,29 @@ export async function runTrackingSync(config) {
       output.checked += 1;
 
       try {
-        const printfulOrder = await getPrintfulOrder(record.printfulOrderId, config);
-        const shipments = extractShipments(printfulOrder);
+        let shipments = [];
+
+        try {
+          const v2Shipments = await getPrintfulShipments(
+            record.printfulOrderId,
+            config
+          );
+          shipments = normalizeShipmentRows(v2Shipments);
+        } catch (shipmentError) {
+          console.warn(
+            `Printful v2 shipment lookup failed for ${record.orderNumber || stateKey}: ` +
+            `${shipmentError.message}. Falling back to legacy order lookup.`
+          );
+        }
+
+        // Fallback for older/legacy Printful responses.
+        if (!shipments.length) {
+          const printfulOrder = await getPrintfulOrder(
+            record.printfulOrderId,
+            config
+          );
+          shipments = extractLegacyShipments(printfulOrder);
+        }
 
         if (!shipments.length) {
           output.skipped += 1;
@@ -245,9 +291,14 @@ export async function runTrackingSync(config) {
 
           output.results.push({
             orderNumber: record.orderNumber,
+            printfulOrderId: record.printfulOrderId,
             shipstationOrderIds: record.shipstationOrderIds,
             trackingNumber: shipment.trackingNumber,
-            carrierCode
+            trackingUrl: shipment.trackingUrl || null,
+            carrier: shipment.carrier || null,
+            carrierCode,
+            shipmentStatus: shipment.shipmentStatus || null,
+            shipDate: dateOnly(shipment.shipDate)
           });
         }
 

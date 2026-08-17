@@ -50,6 +50,7 @@ export function getConfig({ validateSecrets = true } = {}) {
     printfulCustomFileId: process.env.PRINTFUL_CUSTOM_FILE_ID || '',
     printfulUseProductImageAsPrintFile: boolean('PRINTFUL_USE_PRODUCT_IMAGE_AS_PRINT_FILE', true),
     printfulUseLibraryArtwork: boolean('PRINTFUL_USE_LIBRARY_ARTWORK', false),
+    printfulUseArtworkMap: boolean('PRINTFUL_USE_ARTWORK_MAP', true),
     printfulArtworkExtension: process.env.PRINTFUL_ARTWORK_EXTENSION || '.png',
     printfulFilePageSize: Math.min(integer('PRINTFUL_FILE_PAGE_SIZE', 100), 100),
     printfulFileMaxPages: integer('PRINTFUL_FILE_MAX_PAGES', 100),
