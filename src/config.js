@@ -39,6 +39,10 @@ export function getConfig({ validateSecrets = true } = {}) {
     shipstationFallbackCarrierCode: process.env.SHIPSTATION_FALLBACK_CARRIER_CODE || 'other',
 
     printfulToken: validateSecrets ? required('PRINTFUL_API_TOKEN') : process.env.PRINTFUL_API_TOKEN,
+    printfulStoreId: process.env.PRINTFUL_STORE_ID || '',
+    printfulWebhookSecret: process.env.PRINTFUL_WEBHOOK_SECRET || '',
+    printfulWebhookPublicKey: process.env.PRINTFUL_WEBHOOK_PUBLIC_KEY || '',
+    printfulWebhookBaseUrl: process.env.PRINTFUL_WEBHOOK_BASE_URL || '',
     printfulMode: mode,
     printfulOrderSuffix: process.env.PRINTFUL_ORDER_SUFFIX || '',
     printfulRequestDelayMs: integer('PRINTFUL_REQUEST_DELAY_MS', 1200),

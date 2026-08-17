@@ -36,6 +36,9 @@ async function request(path, config, options = {}) {
         Accept: 'application/json',
         'Content-Type': 'application/json',
         Authorization: `Bearer ${config.printfulToken}`,
+        ...(config.printfulStoreId
+          ? { 'X-PF-Store-ID': String(config.printfulStoreId) }
+          : {}),
         ...(options.headers || {})
       }
     });
@@ -577,4 +580,25 @@ export async function createOrder(payload, config) {
     body: JSON.stringify(payload)
   });
   return body.result || body;
+}
+
+
+export async function getPrintfulWebhookConfig(config) {
+  return request('/v2/webhooks', config);
+}
+
+export async function setupPrintfulShipmentWebhook(webhookUrl, config) {
+  const body = await request('/v2/webhooks', config, {
+    method: 'POST',
+    body: JSON.stringify({
+      default_url: webhookUrl,
+      events: [
+        {
+          type: 'shipment_sent'
+        }
+      ]
+    })
+  });
+
+  return body;
 }

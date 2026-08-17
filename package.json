@@ -1,7 +1,7 @@
 {
   "name": "shipstation-printful-bridge",
-  "version": "3.7.0",
-  "description": "ShipStation to Printful bridge with dedicated Printful v2 shipment tracking sync back to ShipStation and Shopify.",
+  "version": "3.8.0",
+  "description": "ShipStation to Printful bridge with Printful shipment_sent webhooks for immediate tracking sync to ShipStation and Shopify.",
   "type": "module",
   "main": "src/index.js",
   "scripts": {

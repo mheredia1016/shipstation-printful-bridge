@@ -207,6 +207,120 @@ function dateOnly(value) {
   return parsed.toISOString().slice(0, 10);
 }
 
+
+export async function processPrintfulShipmentWebhook(event, config) {
+  if (event?.type !== 'shipment_sent') {
+    return {
+      ignored: true,
+      reason: `Unsupported event type: ${event?.type || '(missing)'}`
+    };
+  }
+
+  const order = event?.data?.order || {};
+  const shipment = event?.data?.shipment || {};
+  const externalId = String(order.external_id || '').trim();
+  const trackingNumber = String(shipment.tracking_number || '').trim();
+
+  if (!externalId) {
+    throw new Error('Printful shipment webhook is missing order.external_id.');
+  }
+
+  if (!trackingNumber) {
+    throw new Error(
+      `Printful shipment webhook for ${externalId} is missing tracking_number.`
+    );
+  }
+
+  const state = await loadState(config.stateFile);
+
+  let stateKey = externalId;
+  let record = state.orders?.[stateKey];
+
+  if (!record && order.id) {
+    const match = Object.entries(state.orders || {}).find(([, candidate]) => {
+      return String(candidate?.printfulOrderId || '') === String(order.id);
+    });
+
+    if (match) {
+      [stateKey, record] = match;
+    }
+  }
+
+  if (!record) {
+    throw new Error(
+      `No bridge state mapping found for Printful order ${externalId} ` +
+      `(Printful ID ${order.id || 'unknown'}).`
+    );
+  }
+
+  record.shipments ||= {};
+
+  const shipmentKey = String(
+    shipment.id ||
+    trackingNumber
+  );
+
+  if (record.shipments[shipmentKey]?.synced) {
+    return {
+      ok: true,
+      duplicate: true,
+      orderNumber: record.orderNumber || externalId,
+      trackingNumber
+    };
+  }
+
+  // Webhook v2 does not currently include a carrier field in its documented
+  // shipment_sent payload, so use the configured fallback carrier code.
+  const carrierCode = config.shipstationFallbackCarrierCode || 'other';
+  const shipDate = dateOnly(
+    shipment.shipped_at ||
+    shipment.ship_date ||
+    event.occurred_at ||
+    new Date().toISOString()
+  );
+
+  let marked = 0;
+
+  for (const orderId of record.shipstationOrderIds || []) {
+    await markOrderShipped({
+      orderId,
+      carrierCode,
+      shipDate,
+      trackingNumber
+    }, config);
+
+    marked += 1;
+  }
+
+  record.shipments[shipmentKey] = {
+    synced: true,
+    source: 'printful-webhook',
+    trackingNumber,
+    trackingUrl: shipment.tracking_url || null,
+    carrierCode,
+    shipDate,
+    syncedAt: new Date().toISOString()
+  };
+
+  record.status = 'shipped';
+  record.updatedAt = new Date().toISOString();
+
+  await saveState(config.stateFile, state);
+
+  return {
+    ok: true,
+    duplicate: false,
+    orderNumber: record.orderNumber || externalId,
+    printfulOrderId: record.printfulOrderId || order.id || null,
+    shipstationOrderIds: record.shipstationOrderIds || [],
+    trackingNumber,
+    trackingUrl: shipment.tracking_url || null,
+    carrierCode,
+    shipDate,
+    shipstationOrdersMarked: marked
+  };
+}
+
 export async function runTrackingSync(config) {
   if (trackingRunning) throw new Error('A tracking sync is already running.');
   trackingRunning = true;

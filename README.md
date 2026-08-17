@@ -1,4 +1,4 @@
-# ShipStation → Printful Bridge v3.7
+# ShipStation → Printful Bridge v3.8
 
 Production workflow:
 
@@ -313,3 +313,63 @@ notifySalesChannel = SHIPSTATION_NOTIFY_SALES_CHANNEL
 The old embedded `order.shipments` logic remains as a fallback.
 
 No new state file is required. Keep using the existing Railway volume state file.
+
+
+## v3.8 shipment_sent webhook
+
+Polling did not expose shipments for the legacy-created Printful orders, so
+v3.8 uses Printful's shipment webhook as the primary tracking path.
+
+Flow:
+
+```text
+Printful shipment_sent
+→ POST /webhooks/printful
+→ order.external_id matches ShipStation order number
+→ bridge loads /data state mapping
+→ ShipStation /orders/markasshipped
+→ notifySalesChannel=true
+→ Shopify receives fulfillment/tracking
+```
+
+### Railway variables
+
+```env
+PRINTFUL_STORE_ID=18450657
+PRINTFUL_WEBHOOK_BASE_URL=https://YOUR-RAILWAY-URL
+PRINTFUL_WEBHOOK_SECRET=
+PRINTFUL_WEBHOOK_PUBLIC_KEY=
+```
+
+### Setup
+
+After deploying v3.8, call:
+
+```text
+POST /api/setup-printful-webhook
+```
+
+with the normal `x-admin-token` header.
+
+You may also send:
+
+```json
+{
+  "baseUrl": "https://YOUR-RAILWAY-URL"
+}
+```
+
+Printful returns a `public_key` and `secret_key`.
+
+Save them in Railway:
+
+```env
+PRINTFUL_WEBHOOK_PUBLIC_KEY=...
+PRINTFUL_WEBHOOK_SECRET=...
+```
+
+Then redeploy. The secret is used to verify the
+`x-pf-webhook-signature` HMAC-SHA256 signature against the raw request body.
+
+The old scheduled tracking sync remains available as a fallback, but new
+shipments should reach ShipStation immediately through the webhook.

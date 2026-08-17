@@ -5,14 +5,20 @@ import {
   setArtworkFileId
 } from './artwork-map.js';
 import express from 'express';
+import crypto from 'node:crypto';
 import { getConfig } from './config.js';
 import { verifyShipStation } from './shipstation.js';
-import { verifyPrintful } from './printful.js';
+import {
+  verifyPrintful,
+  getPrintfulWebhookConfig,
+  setupPrintfulShipmentWebhook
+} from './printful.js';
 import {
   runImport,
   runTrackingSync,
   getLastRun,
-  getLastTrackingRun
+  getLastTrackingRun,
+  processPrintfulShipmentWebhook
 } from './runner.js';
 
 const config = getConfig();
@@ -23,7 +29,12 @@ let statusCache = {
   value: null
 };
 
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({
+  limit: '2mb',
+  verify: (req, _res, buffer) => {
+    req.rawBody = Buffer.from(buffer);
+  }
+}));
 app.use((req, res, next) => {
   const origin = req.get('origin');
 
@@ -45,6 +56,49 @@ app.use((req, res, next) => {
 });
 app.use(express.static('public'));
 
+
+function verifyPrintfulWebhookSignature(req) {
+  if (!config.printfulWebhookSecret) {
+    // Allows initial testing before the secret returned by Printful is saved.
+    return {
+      verified: false,
+      reason: 'PRINTFUL_WEBHOOK_SECRET is not configured'
+    };
+  }
+
+  const signature = String(
+    req.get('x-pf-webhook-signature') || ''
+  ).trim();
+
+  if (!signature || !req.rawBody) {
+    return {
+      verified: false,
+      reason: 'Missing webhook signature or raw body'
+    };
+  }
+
+  const key = Buffer.from(config.printfulWebhookSecret, 'hex');
+  const expected = crypto
+    .createHmac('sha256', key)
+    .update(req.rawBody)
+    .digest('hex');
+
+  const received = Buffer.from(signature, 'utf8');
+  const calculated = Buffer.from(expected, 'utf8');
+
+  if (received.length !== calculated.length) {
+    return {
+      verified: false,
+      reason: 'Signature length mismatch'
+    };
+  }
+
+  return {
+    verified: crypto.timingSafeEqual(received, calculated),
+    reason: 'signature check'
+  };
+}
+
 function requireAdmin(req, res, next) {
   if (!config.adminToken) return next();
   const token = req.get('x-admin-token') || req.query.token;
@@ -60,6 +114,85 @@ app.get('/health', (_req, res) => {
     lastImport: getLastRun()?.finishedAt || null,
     lastTrackingSync: getLastTrackingRun()?.finishedAt || null
   });
+});
+
+
+app.post('/webhooks/printful', async (req, res) => {
+  try {
+    const signatureCheck = verifyPrintfulWebhookSignature(req);
+
+    if (
+      config.printfulWebhookSecret &&
+      !signatureCheck.verified
+    ) {
+      console.warn(
+        `Rejected Printful webhook: ${signatureCheck.reason}`
+      );
+      return res.status(401).json({
+        error: 'Invalid Printful webhook signature.'
+      });
+    }
+
+    const result = await processPrintfulShipmentWebhook(
+      req.body,
+      config
+    );
+
+    console.log(
+      `Printful webhook ${req.body?.type || 'unknown'}: ` +
+      `${JSON.stringify(result)}`
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('Printful webhook processing failed:', error);
+    return res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+app.get('/api/printful-webhook', requireAdmin, async (_req, res) => {
+  try {
+    res.json(await getPrintfulWebhookConfig(config));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/setup-printful-webhook', requireAdmin, async (req, res) => {
+  try {
+    const baseUrl = String(
+      req.body?.baseUrl ||
+      config.printfulWebhookBaseUrl ||
+      ''
+    ).trim().replace(/\/+$/, '');
+
+    if (!baseUrl || !/^https:\/\//i.test(baseUrl)) {
+      return res.status(400).json({
+        error:
+          'Provide an HTTPS baseUrl, or set PRINTFUL_WEBHOOK_BASE_URL.'
+      });
+    }
+
+    const webhookUrl = `${baseUrl}/webhooks/printful`;
+    const result = await setupPrintfulShipmentWebhook(
+      webhookUrl,
+      config
+    );
+
+    res.json({
+      ok: true,
+      webhookUrl,
+      result,
+      nextStep:
+        'Copy result.result.secret_key to PRINTFUL_WEBHOOK_SECRET ' +
+        'and result.result.public_key to PRINTFUL_WEBHOOK_PUBLIC_KEY, ' +
+        'then redeploy.'
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.get('/api/status', async (_req, res) => {
@@ -79,6 +212,8 @@ app.get('/api/status', async (_req, res) => {
     stateFile: config.stateFile,
     notifyCustomer: config.shipstationNotifyCustomer,
     notifySalesChannel: config.shipstationNotifySalesChannel,
+    printfulStoreId: config.printfulStoreId || null,
+    printfulWebhookConfigured: Boolean(config.printfulWebhookSecret),
     useLibraryArtwork: config.printfulUseLibraryArtwork,
     useArtworkMap: config.printfulUseArtworkMap,
     artworkExtension: config.printfulArtworkExtension,
@@ -206,7 +341,7 @@ app.get('/api/last-tracking-run', (_req, res) => {
 });
 
 app.listen(config.port, () => {
-  console.log(`ShipStation → Printful bridge v3.7 listening on port ${config.port}`);
+  console.log(`ShipStation → Printful bridge v3.8 listening on port ${config.port}`);
   console.log(`Mode: ${config.printfulMode}`);
   console.log(`Visible Printful order number: ShipStation order number`);
   console.log(`Tracking → ShipStation customer notification: ${config.shipstationNotifyCustomer}`);
