@@ -1,4 +1,4 @@
-# ShipStation → Printful Bridge v3.8
+# ShipStation → Printful Bridge v3.9
 
 Production workflow:
 
@@ -373,3 +373,15 @@ Then redeploy. The secret is used to verify the
 
 The old scheduled tracking sync remains available as a fallback, but new
 shipments should reach ShipStation immediately through the webhook.
+
+
+## v3.9 self-healing tracking webhooks
+
+If a Printful shipment webhook arrives for an order missing from
+`/data/bridge-state.json`, the bridge now searches ShipStation directly
+using the exact Printful external order number, rebuilds the state mapping,
+then marks the recovered ShipStation order record(s) shipped and notifies
+the sales channel.
+
+ShipStation's order-number filter is starts-with, so v3.9 performs an exact
+comparison before updating anything.

@@ -160,43 +160,6 @@ app.get('/api/printful-webhook', requireAdmin, async (_req, res) => {
   }
 });
 
-
-app.get('/api/setup-printful-webhook', requireAdmin, async (req, res) => {
-  try {
-    const baseUrl = String(
-      req.query.baseUrl ||
-      config.printfulWebhookBaseUrl ||
-      ''
-    ).trim().replace(/\/+$/, '');
-
-    if (!baseUrl || !/^https:\/\//i.test(baseUrl)) {
-      return res.status(400).json({
-        error:
-          'Provide ?baseUrl=https://YOUR-RAILWAY-URL or set PRINTFUL_WEBHOOK_BASE_URL.'
-      });
-    }
-
-    const webhookUrl = `${baseUrl}/webhooks/printful`;
-
-    const result = await setupPrintfulShipmentWebhook(
-      webhookUrl,
-      config
-    );
-
-    res.json({
-      ok: true,
-      webhookUrl,
-      result,
-      nextStep:
-        'Copy result.result.secret_key to PRINTFUL_WEBHOOK_SECRET ' +
-        'and result.result.public_key to PRINTFUL_WEBHOOK_PUBLIC_KEY, ' +
-        'then redeploy.'
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 app.post('/api/setup-printful-webhook', requireAdmin, async (req, res) => {
   try {
     const baseUrl = String(
@@ -378,7 +341,7 @@ app.get('/api/last-tracking-run', (_req, res) => {
 });
 
 app.listen(config.port, () => {
-  console.log(`ShipStation → Printful bridge v3.8 listening on port ${config.port}`);
+  console.log(`ShipStation → Printful bridge v3.9 listening on port ${config.port}`);
   console.log(`Mode: ${config.printfulMode}`);
   console.log(`Visible Printful order number: ShipStation order number`);
   console.log(`Tracking → ShipStation customer notification: ${config.shipstationNotifyCustomer}`);

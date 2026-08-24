@@ -1,4 +1,9 @@
-import { listCandidateOrders, markOrderShipped, resolveCarrierCode } from './shipstation.js';
+import {
+  listCandidateOrders,
+  markOrderShipped,
+  resolveCarrierCode,
+  findOrdersByExactOrderNumber
+} from './shipstation.js';
 import {
   buildPrintfulOrder,
   createOrder,
@@ -247,9 +252,63 @@ export async function processPrintfulShipmentWebhook(event, config) {
   }
 
   if (!record) {
-    throw new Error(
-      `No bridge state mapping found for Printful order ${externalId} ` +
-      `(Printful ID ${order.id || 'unknown'}).`
+    console.warn(
+      `No bridge state mapping found for Printful order ${externalId}. ` +
+      `Recovering directly from ShipStation...`
+    );
+
+    const recoveredOrders = await findOrdersByExactOrderNumber(
+      externalId,
+      config
+    );
+
+    if (!recoveredOrders.length) {
+      throw new Error(
+        `No bridge state mapping and no exact ShipStation order found for ` +
+        `${externalId} (Printful ID ${order.id || 'unknown'}).`
+      );
+    }
+
+    const expectedToken = String(
+      config.customFieldValue || 'Printful'
+    ).trim().toLowerCase();
+
+    const matchingPrintfulOrders = recoveredOrders.filter(candidate => {
+      const values = String(
+        candidate?.advancedOptions?.customField1 || ''
+      )
+        .split(',')
+        .map(value => value.trim().toLowerCase())
+        .filter(Boolean);
+
+      return values.includes(expectedToken);
+    });
+
+    const ordersToUse = matchingPrintfulOrders.length
+      ? matchingPrintfulOrders
+      : recoveredOrders;
+
+    stateKey = externalId;
+    record = {
+      status: 'submitted',
+      orderNumber: externalId,
+      shipstationOrderIds: ordersToUse.map(candidate =>
+        Number(candidate.orderId)
+      ),
+      printfulOrderId: order.id || null,
+      printfulExternalId: externalId,
+      recoveredFromShipStation: true,
+      recoveredAt: new Date().toISOString(),
+      shipments: {}
+    };
+
+    state.orders ||= {};
+    state.orders[stateKey] = record;
+    await saveState(config.stateFile, state);
+
+    console.log(
+      `Recovered ${externalId}: ShipStation order ID(s) ` +
+      `${record.shipstationOrderIds.join(', ')}`
     );
   }
 

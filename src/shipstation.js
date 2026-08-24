@@ -224,3 +224,24 @@ export async function markOrderShipped({
     })
   });
 }
+
+
+export async function findOrdersByExactOrderNumber(orderNumber, config) {
+  const wanted = String(orderNumber || '').trim();
+  if (!wanted) throw new Error('ShipStation order number is required.');
+
+  const params = new URLSearchParams({
+    orderNumber: wanted,
+    storeId: String(config.shipstationStoreId),
+    pageSize: '500',
+    page: '1'
+  });
+
+  const result = await request(`/orders?${params}`, config);
+  const orders = Array.isArray(result.orders) ? result.orders : [];
+
+  // ShipStation orderNumber filtering is "starts with"; force exact match.
+  return orders.filter(order =>
+    String(order.orderNumber || '').trim() === wanted
+  );
+}
