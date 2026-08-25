@@ -1,4 +1,4 @@
-# ShipStation → Printful Bridge v3.9
+# ShipStation → Printful Bridge v3.10
 
 Production workflow:
 
@@ -385,3 +385,25 @@ the sales channel.
 
 ShipStation's order-number filter is starts-with, so v3.9 performs an exact
 comparison before updating anything.
+
+
+## v3.10 multiple Custom Field 1 values
+
+Use:
+
+```env
+SHIPSTATION_CUSTOM_FIELD_VALUE=Printful,PrintfulEU
+```
+
+Accepted examples:
+
+```text
+Printful
+PrintfulEU
+Printful,PWT
+PrintfulEU,PWT
+PWT,Printful
+PWT,PrintfulEU
+```
+
+The same multi-token matching is also used by webhook state recovery.

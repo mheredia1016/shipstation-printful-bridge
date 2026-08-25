@@ -269,9 +269,12 @@ export async function processPrintfulShipmentWebhook(event, config) {
       );
     }
 
-    const expectedToken = String(
-      config.customFieldValue || 'Printful'
-    ).trim().toLowerCase();
+    const expectedTokens = Array.isArray(config.customFieldValues)
+      ? config.customFieldValues
+      : String(config.customFieldValue || 'Printful')
+          .split(',')
+          .map(value => value.trim().toLowerCase())
+          .filter(Boolean);
 
     const matchingPrintfulOrders = recoveredOrders.filter(candidate => {
       const values = String(
@@ -281,7 +284,7 @@ export async function processPrintfulShipmentWebhook(event, config) {
         .map(value => value.trim().toLowerCase())
         .filter(Boolean);
 
-      return values.includes(expectedToken);
+      return expectedTokens.some(token => values.includes(token));
     });
 
     const ordersToUse = matchingPrintfulOrders.length

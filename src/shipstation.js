@@ -125,7 +125,12 @@ export async function verifyShipStation(config) {
 
 export async function listCandidateOrders(config) {
   const candidates = [];
-  const expected = config.customFieldValue.trim().toLowerCase();
+  const expectedValues = Array.isArray(config.customFieldValues)
+    ? config.customFieldValues
+    : String(config.customFieldValue || 'Printful')
+        .split(',')
+        .map(value => value.trim().toLowerCase())
+        .filter(Boolean);
 
   for (let page = 1; page <= config.maxPages; page += 1) {
     const params = new URLSearchParams({
@@ -146,7 +151,9 @@ export async function listCandidateOrders(config) {
         .map(value => value.trim().toLowerCase())
         .filter(Boolean);
 
-      if (values.includes(expected)) {
+      if (
+        expectedValues.some(expected => values.includes(expected))
+      ) {
         candidates.push(order);
       }
     }

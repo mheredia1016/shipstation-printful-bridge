@@ -32,6 +32,12 @@ export function getConfig({ validateSecrets = true } = {}) {
     shipstationStoreId: required('SHIPSTATION_STORE_ID'),
     shipstationOrderStatus: process.env.SHIPSTATION_ORDER_STATUS || 'awaiting_shipment',
     customFieldValue: process.env.SHIPSTATION_CUSTOM_FIELD_VALUE || 'Printful',
+    customFieldValues: String(
+      process.env.SHIPSTATION_CUSTOM_FIELD_VALUE || 'Printful'
+    )
+      .split(',')
+      .map(value => value.trim().toLowerCase())
+      .filter(Boolean),
     pageSize: Math.min(integer('SHIPSTATION_PAGE_SIZE', 100), 500),
     maxPages: integer('SHIPSTATION_MAX_PAGES', 10),
     shipstationNotifyCustomer: boolean('SHIPSTATION_NOTIFY_CUSTOMER', false),

@@ -210,6 +210,7 @@ app.get('/api/status', async (_req, res) => {
   const result = {
     mode: config.printfulMode,
     stateFile: config.stateFile,
+    customFieldValues: config.customFieldValues,
     notifyCustomer: config.shipstationNotifyCustomer,
     notifySalesChannel: config.shipstationNotifySalesChannel,
     printfulStoreId: config.printfulStoreId || null,
@@ -341,7 +342,7 @@ app.get('/api/last-tracking-run', (_req, res) => {
 });
 
 app.listen(config.port, () => {
-  console.log(`ShipStation → Printful bridge v3.9 listening on port ${config.port}`);
+  console.log(`ShipStation → Printful bridge v3.10 listening on port ${config.port}`);
   console.log(`Mode: ${config.printfulMode}`);
   console.log(`Visible Printful order number: ShipStation order number`);
   console.log(`Tracking → ShipStation customer notification: ${config.shipstationNotifyCustomer}`);
