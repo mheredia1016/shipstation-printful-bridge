@@ -184,6 +184,181 @@ async function resolveCatalogVariantId(item, config) {
 }
 
 
+let syncedStoreProductCache = {
+  products: null,
+  details: new Map()
+};
+
+function normalizedText(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function itemMatchesSyncedProductPilot(item, config) {
+  const wantedSku = normalizedText(config.printfulSyncedProductTestSku);
+  if (!wantedSku) return false;
+
+  const oldSku = normalizedText(getOldSku(item));
+  const currentSku = normalizedText(item.sku);
+  return oldSku === wantedSku || currentSku === wantedSku;
+}
+
+async function listAllStoreProducts(config) {
+  if (Array.isArray(syncedStoreProductCache.products)) {
+    return syncedStoreProductCache.products;
+  }
+
+  const products = [];
+
+  for (let page = 0; page < config.printfulProductScanMaxPages; page += 1) {
+    const offset = page * 100;
+    const body = await listStoreProductsPage(config, offset);
+    const rows = Array.isArray(body.result) ? body.result : [];
+    products.push(...rows);
+
+    const total = Number(body?.paging?.total || 0);
+    if (rows.length < 100 || (total && offset + rows.length >= total)) break;
+
+    if (config.printfulRequestDelayMs > 0) {
+      await sleep(config.printfulRequestDelayMs);
+    }
+  }
+
+  syncedStoreProductCache.products = products;
+  return products;
+}
+
+async function getCachedStoreProduct(productId, config) {
+  const key = String(productId);
+  if (syncedStoreProductCache.details.has(key)) {
+    return syncedStoreProductCache.details.get(key);
+  }
+
+  const details = await getStoreProduct(productId, config);
+  syncedStoreProductCache.details.set(key, details);
+  return details;
+}
+
+function storeProductName(product) {
+  return String(
+    product?.sync_product?.name ||
+    product?.name ||
+    product?.title ||
+    ''
+  ).trim();
+}
+
+async function findStoreProductByName(productName, config) {
+  const wanted = normalizedText(productName);
+  if (!wanted) {
+    throw new Error('PRINTFUL_SYNCED_PRODUCT_TEST_NAME is not configured.');
+  }
+
+  const products = await listAllStoreProducts(config);
+
+  let match = products.find(product =>
+    normalizedText(storeProductName(product)) === wanted
+  );
+
+  // Defensive fallback in case Printful returns only a shortened/altered
+  // title in the list response. We still require one unambiguous match.
+  if (!match) {
+    const partials = products.filter(product => {
+      const name = normalizedText(storeProductName(product));
+      return name && (name.includes(wanted) || wanted.includes(name));
+    });
+    if (partials.length === 1) match = partials[0];
+  }
+
+  if (!match) {
+    throw new Error(
+      `Printful store product not found: ${productName}. ` +
+      `Check that it exists in Printful store ${config.printfulStoreId || '(token default)'}.`
+    );
+  }
+
+  return getCachedStoreProduct(match.id, config);
+}
+
+async function resolveSyncedStoreVariant(item, config) {
+  const product = await findStoreProductByName(
+    config.printfulSyncedProductTestName,
+    config
+  );
+
+  const syncVariants = Array.isArray(product.sync_variants)
+    ? product.sync_variants
+    : [];
+
+  if (!syncVariants.length) {
+    throw new Error(
+      `Printful product ${config.printfulSyncedProductTestName} has no sync variants.`
+    );
+  }
+
+  const orderedSize = normalizeSize(getOption(item, ['size', 'size property']));
+  const orderedColor = normalizedText(
+    getOption(item, ['color', 'colour']) ||
+    config.printfulFallbackColor ||
+    'Black'
+  );
+
+  if (!orderedSize) {
+    throw new Error(
+      `No size found for synced-product pilot SKU ${getOldSku(item) || item.sku || '(no SKU)'}.`
+    );
+  }
+
+  // The sync variant points to a Printful catalog variant_id. Reuse the
+  // existing catalog data to identify the exact Black/size variant.
+  const catalogVariants = await getCatalogVariants(config);
+  const catalogById = new Map(
+    catalogVariants.map(variant => [Number(variant.id), variant])
+  );
+
+  const candidates = syncVariants.map(syncVariant => {
+    const catalog = catalogById.get(Number(syncVariant.variant_id));
+    return { syncVariant, catalog };
+  });
+
+  let match = candidates.find(({ catalog }) => {
+    if (!catalog) return false;
+    return normalizeSize(catalog.size) === orderedSize &&
+      normalizedText(catalog.color) === orderedColor;
+  });
+
+  if (!match && config.printfulFallbackColor) {
+    const fallbackColor = normalizedText(config.printfulFallbackColor);
+    match = candidates.find(({ catalog }) => {
+      if (!catalog) return false;
+      return normalizeSize(catalog.size) === orderedSize &&
+        normalizedText(catalog.color) === fallbackColor;
+    });
+  }
+
+  if (!match) {
+    const available = candidates
+      .filter(({ catalog }) => catalog)
+      .map(({ catalog }) => `${catalog.color} / ${normalizeSize(catalog.size)}`)
+      .join(', ');
+
+    throw new Error(
+      `No synced Printful variant found for ${orderedColor || 'unknown color'} / ` +
+      `${orderedSize} on ${config.printfulSyncedProductTestName}. ` +
+      `Available: ${available || 'none could be resolved'}.`
+    );
+  }
+
+  return {
+    syncVariantId: Number(match.syncVariant.id),
+    catalogVariantId: Number(match.syncVariant.variant_id),
+    productId: Number(product?.sync_product?.id || product?.id || 0) || null,
+    productName: String(product?.sync_product?.name || config.printfulSyncedProductTestName),
+    color: match.catalog?.color || '',
+    size: normalizeSize(match.catalog?.size)
+  };
+}
+
+
 
 let storeArtworkScanCache = {
   completedAt: 0,
@@ -340,6 +515,43 @@ export async function verifyPrintful(config) {
   };
 }
 
+export async function inspectSyncedProductTest(config) {
+  if (!config.printfulSyncedProductTestSku || !config.printfulSyncedProductTestName) {
+    return {
+      configured: false,
+      testSku: config.printfulSyncedProductTestSku || '',
+      productName: config.printfulSyncedProductTestName || '',
+      message: 'Set PRINTFUL_SYNCED_PRODUCT_TEST_SKU and PRINTFUL_SYNCED_PRODUCT_TEST_NAME.'
+    };
+  }
+
+  const product = await findStoreProductByName(
+    config.printfulSyncedProductTestName,
+    config
+  );
+  const catalogVariants = await getCatalogVariants(config);
+  const catalogById = new Map(
+    catalogVariants.map(variant => [Number(variant.id), variant])
+  );
+
+  return {
+    configured: true,
+    testSku: config.printfulSyncedProductTestSku,
+    productName: product?.sync_product?.name || config.printfulSyncedProductTestName,
+    syncProductId: product?.sync_product?.id || product?.id || null,
+    variants: (product.sync_variants || []).map(variant => {
+      const catalog = catalogById.get(Number(variant.variant_id));
+      return {
+        syncVariantId: Number(variant.id),
+        catalogVariantId: Number(variant.variant_id),
+        color: catalog?.color || null,
+        size: catalog ? normalizeSize(catalog.size) : null,
+        synced: variant.synced ?? null
+      };
+    })
+  };
+}
+
 function compact(object) {
   return Object.fromEntries(
     Object.entries(object).filter(([, value]) => value !== undefined && value !== null && value !== '')
@@ -480,11 +692,39 @@ export async function buildPrintfulOrder(group, config) {
     }),
     items: await Promise.all(realItems.map(async (item, index) => {
       const originalTitle = String(item.name || `Item ${index + 1}`).trim();
+
+      // Synced-store-product pilot: for the configured test SKU, reference
+      // the existing Printful sync variant directly. This reuses the saved
+      // garment, color/size configuration and attached print files.
+      if (itemMatchesSyncedProductPilot(item, config)) {
+        try {
+          const synced = await resolveSyncedStoreVariant(item, config);
+          console.log(
+            `[SYNCED PRODUCT] ${originalOrderNumber} | ` +
+            `${getOldSku(item) || item.sku} -> ${synced.productName} | ` +
+            `${synced.color} / ${synced.size} | sync_variant_id=${synced.syncVariantId}`
+          );
+
+          return {
+            external_id: itemReference(item, index),
+            sync_variant_id: synced.syncVariantId,
+            quantity: Math.max(1, Number(item.quantity || 1))
+          };
+        } catch (error) {
+          if (!config.printfulSyncedProductFallback) throw error;
+          console.warn(
+            `[SYNCED PRODUCT FALLBACK] ${originalOrderNumber} | ` +
+            `${getOldSku(item) || item.sku || '(no SKU)'} | ${error.message}`
+          );
+        }
+      }
+
+      const originalTitleForCustomItem = originalTitle;
       const sku = chooseVisibleSku(item, config);
       const baseTitle =
         config.printfulPrefixTitleWithSku && sku
-          ? `${sku} • ${originalTitle}`
-          : originalTitle;
+          ? `${sku} • ${originalTitleForCustomItem}`
+          : originalTitleForCustomItem;
       const title = `${config.printfulReviewPrefix || ''}${baseTitle}`.slice(0, 180);
       const quantity = Math.max(1, Number(item.quantity || 1));
       const reference = itemReference(item, index);

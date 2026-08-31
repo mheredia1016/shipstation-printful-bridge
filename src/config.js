@@ -72,6 +72,17 @@ export function getConfig({ validateSecrets = true } = {}) {
     printfulSkuSource: (process.env.PRINTFUL_SKU_SOURCE || 'old_sku').trim().toLowerCase(),
     printfulPrefixTitleWithSku: boolean('PRINTFUL_PREFIX_TITLE_WITH_SKU', true),
 
+    // Optional synced-store-product pilot. When configured, matching order
+    // items use an existing Printful sync_variant_id (and therefore the
+    // product's saved garment + print files) instead of building a custom
+    // item. All non-matching SKUs keep the existing behavior.
+    printfulSyncedProductTestSku:
+      (process.env.PRINTFUL_SYNCED_PRODUCT_TEST_SKU || '').trim().toLowerCase(),
+    printfulSyncedProductTestName:
+      (process.env.PRINTFUL_SYNCED_PRODUCT_TEST_NAME || '').trim(),
+    printfulSyncedProductFallback:
+      boolean('PRINTFUL_SYNCED_PRODUCT_FALLBACK', true),
+
     runOnStart: boolean('RUN_ON_START', true),
     pollIntervalMinutes: integer('POLL_INTERVAL_MINUTES', 10),
     trackingPollMinutes: integer('TRACKING_POLL_MINUTES', 10),

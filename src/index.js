@@ -10,6 +10,7 @@ import { getConfig } from './config.js';
 import { verifyShipStation } from './shipstation.js';
 import {
   verifyPrintful,
+  inspectSyncedProductTest,
   getPrintfulWebhookConfig,
   setupPrintfulShipmentWebhook
 } from './printful.js';
@@ -195,6 +196,15 @@ app.post('/api/setup-printful-webhook', requireAdmin, async (req, res) => {
   }
 });
 
+app.get('/api/synced-product-test', requireAdmin, async (_req, res) => {
+  try {
+    res.json(await inspectSyncedProductTest(config));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
 app.get('/api/status', async (_req, res) => {
   const now = Date.now();
 
@@ -347,6 +357,10 @@ app.listen(config.port, () => {
   console.log(`Visible Printful order number: ShipStation order number`);
   console.log(`Tracking → ShipStation customer notification: ${config.shipstationNotifyCustomer}`);
   console.log(`Tracking → Shopify/sales channel notification: ${config.shipstationNotifySalesChannel}`);
+  console.log(
+    `Synced product pilot: ${config.printfulSyncedProductTestSku || '(disabled)'} ` +
+    `-> ${config.printfulSyncedProductTestName || '(not configured)'}`
+  );
 
   if (config.runOnStart) {
     runImport(config)
