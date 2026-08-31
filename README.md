@@ -420,3 +420,25 @@ POST `/api/reprocess-order` with JSON:
 ```
 
 If ADMIN_TOKEN is configured, include `x-admin-token` as usual. The endpoint refuses to create a new Printful order and refuses to modify an order unless its current Printful status is `draft` or `failed`.
+
+
+## v3.12 automatic synced-product matching
+
+Create new products in the connected Printful store with this name:
+
+`OLD-SKU | PRODUCT NAME`
+
+Example:
+
+`aew6099 | The New Level - Level Up T-Shirt`
+
+Matching priority is Old SKU first, then current ShipStation SKU. After the
+product is found, the bridge matches the order's color and size and uses the
+existing Printful `sync_variant_id`, so the saved garment and artwork are reused.
+
+If there is no exact SKU-prefix product match, the existing custom unsynced
+draft behavior remains unchanged. Ambiguous or missing variants also fall back
+instead of guessing.
+
+The old aew6099 pilot remains enabled for backward compatibility until its
+existing Printful product is renamed to the new convention.

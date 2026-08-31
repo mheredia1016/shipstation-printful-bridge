@@ -368,11 +368,12 @@ app.get('/api/last-tracking-run', (_req, res) => {
 });
 
 app.listen(config.port, () => {
-  console.log(`ShipStation → Printful bridge v3.11 listening on port ${config.port}`);
+  console.log(`ShipStation → Printful bridge v3.12 listening on port ${config.port}`);
   console.log(`Mode: ${config.printfulMode}`);
   console.log(`Visible Printful order number: ShipStation order number`);
   console.log(`Tracking → ShipStation customer notification: ${config.shipstationNotifyCustomer}`);
   console.log(`Tracking → Shopify/sales channel notification: ${config.shipstationNotifySalesChannel}`);
+  console.log('Automatic synced products: OLD-SKU | PRODUCT NAME');
   console.log(
     `Synced product pilot: ${config.printfulSyncedProductTestSku || '(disabled)'} ` +
     `-> ${config.printfulSyncedProductTestName || '(not configured)'}`

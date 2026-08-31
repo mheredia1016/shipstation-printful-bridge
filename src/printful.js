@@ -247,6 +247,156 @@ function storeProductName(product) {
   ).trim();
 }
 
+
+function productSkuPrefix(product) {
+  const name = storeProductName(product);
+  const separator = name.indexOf('|');
+  if (separator < 1) return '';
+  return normalizedText(name.slice(0, separator));
+}
+
+async function findStoreProductBySkuPrefix(item, config) {
+  // Old SKU is authoritative. Current ShipStation SKU is fallback only.
+  const oldSku = normalizedText(getOldSku(item));
+  const currentSku = normalizedText(item.sku);
+  const wantedSkus = [...new Set([oldSku, currentSku].filter(Boolean))];
+
+  if (!wantedSkus.length) return null;
+
+  const products = await listAllStoreProducts(config);
+
+  for (const wantedSku of wantedSkus) {
+    const matches = products.filter(product => productSkuPrefix(product) === wantedSku);
+
+    if (matches.length > 1) {
+      throw new Error(
+        `Multiple Printful products use SKU prefix ${wantedSku}: ` +
+        matches.map(storeProductName).join(', ')
+      );
+    }
+
+    if (matches.length === 1) {
+      return {
+        product: await getCachedStoreProduct(matches[0].id, config),
+        matchedSku: wantedSku,
+        matchedBy: wantedSku === oldSku ? 'old_sku' : 'current_sku'
+      };
+    }
+  }
+
+  return null;
+}
+
+function descriptorHasSize(descriptor, orderedSize) {
+  const d = String(descriptor || '').toUpperCase();
+  const size = String(orderedSize || '').toUpperCase();
+  const tokens = d.split(/[^A-Z0-9]+/).filter(Boolean);
+  return tokens.includes(size);
+}
+
+async function resolveSyncedVariantFromProduct(item, product, config) {
+  const productName = String(product?.sync_product?.name || product?.name || '(unnamed product)');
+  const syncVariants = Array.isArray(product.sync_variants) ? product.sync_variants : [];
+
+  if (!syncVariants.length) {
+    throw new Error(`Printful product ${productName} has no sync variants.`);
+  }
+
+  const orderedSize = normalizeSize(getOption(item, ['size', 'size property']));
+  const orderedColor = normalizedText(
+    getOption(item, ['color', 'colour']) ||
+    config.printfulFallbackColor ||
+    'Black'
+  );
+
+  if (!orderedSize) {
+    throw new Error(
+      `No size found for ${getOldSku(item) || item.sku || '(no SKU)'} on ${productName}.`
+    );
+  }
+
+  // Most Printful sync variants expose a readable variant name. Use it first,
+  // which lets this work even when different synced products use different
+  // garment catalog IDs.
+  let match = syncVariants.find(syncVariant => {
+    const descriptor = String(
+      syncVariant?.name ||
+      syncVariant?.variant_name ||
+      ''
+    );
+    if (!descriptor) return false;
+    const hasSize = descriptorHasSize(descriptor, orderedSize);
+    const hasColor = !orderedColor || normalizedText(descriptor).includes(orderedColor);
+    return hasSize && hasColor;
+  });
+
+  let catalog = null;
+
+  // Compatibility fallback for the existing Gildan blank configuration.
+  if (!match) {
+    const catalogVariants = await getCatalogVariants(config);
+    const catalogById = new Map(
+      catalogVariants.map(variant => [Number(variant.id), variant])
+    );
+
+    const candidates = syncVariants.map(syncVariant => ({
+      syncVariant,
+      catalog: catalogById.get(Number(syncVariant.variant_id))
+    }));
+
+    let resolved = candidates.find(row => {
+      if (!row.catalog) return false;
+      return normalizeSize(row.catalog.size) === orderedSize &&
+        normalizedText(row.catalog.color) === orderedColor;
+    });
+
+    if (!resolved && config.printfulFallbackColor) {
+      const fallbackColor = normalizedText(config.printfulFallbackColor);
+      resolved = candidates.find(row => {
+        if (!row.catalog) return false;
+        return normalizeSize(row.catalog.size) === orderedSize &&
+          normalizedText(row.catalog.color) === fallbackColor;
+      });
+    }
+
+    if (resolved) {
+      match = resolved.syncVariant;
+      catalog = resolved.catalog;
+    }
+  }
+
+  if (!match) {
+    const available = syncVariants
+      .map(v => v.name || v.variant_name || `variant_id=${v.variant_id}`)
+      .join(', ');
+    throw new Error(
+      `No synced Printful variant found for ${orderedColor || 'unknown color'} / ` +
+      `${orderedSize} on ${productName}. Available: ${available || 'none'}.`
+    );
+  }
+
+  return {
+    syncVariantId: Number(match.id),
+    catalogVariantId: Number(match.variant_id),
+    productId: Number(product?.sync_product?.id || product?.id || 0) || null,
+    productName,
+    color: catalog?.color || getOption(item, ['color', 'colour']) || config.printfulFallbackColor || '',
+    size: catalog?.size ? normalizeSize(catalog.size) : orderedSize
+  };
+}
+
+async function resolveAutomaticSyncedStoreVariant(item, config) {
+  const found = await findStoreProductBySkuPrefix(item, config);
+  if (!found) return null;
+
+  const resolved = await resolveSyncedVariantFromProduct(item, found.product, config);
+  return {
+    ...resolved,
+    matchedSku: found.matchedSku,
+    matchedBy: found.matchedBy
+  };
+}
+
 async function findStoreProductByName(productName, config) {
   const wanted = normalizedText(productName);
   if (!wanted) {
@@ -693,9 +843,35 @@ export async function buildPrintfulOrder(group, config) {
     items: await Promise.all(realItems.map(async (item, index) => {
       const originalTitle = String(item.name || `Item ${index + 1}`).trim();
 
-      // Synced-store-product pilot: for the configured test SKU, reference
-      // the existing Printful sync variant directly. This reuses the saved
-      // garment, color/size configuration and attached print files.
+      // Automatic synced-product matching.
+      // Printful naming convention: OLD-SKU | PRODUCT NAME
+      // Old SKU is checked first; current ShipStation SKU is fallback.
+      try {
+        const automatic = await resolveAutomaticSyncedStoreVariant(item, config);
+        if (automatic) {
+          console.log(
+            `[SYNCED PRODUCT AUTO] ${originalOrderNumber} | ` +
+            `${automatic.matchedSku} (${automatic.matchedBy}) -> ${automatic.productName} | ` +
+            `${automatic.color} / ${automatic.size} | sync_variant_id=${automatic.syncVariantId}`
+          );
+
+          return {
+            external_id: itemReference(item, index),
+            sync_variant_id: automatic.syncVariantId,
+            quantity: Math.max(1, Number(item.quantity || 1))
+          };
+        }
+      } catch (error) {
+        if (!config.printfulSyncedProductFallback) throw error;
+        console.warn(
+          `[SYNCED PRODUCT AUTO FALLBACK] ${originalOrderNumber} | ` +
+          `${getOldSku(item) || item.sku || '(no SKU)'} | ${error.message}`
+        );
+      }
+
+      // Backward-compatible pilot for the existing aew6099 test product.
+      // This can be removed later after that Printful product is renamed to
+      // "aew6099 | ...".
       if (itemMatchesSyncedProductPilot(item, config)) {
         try {
           const synced = await resolveSyncedStoreVariant(item, config);
