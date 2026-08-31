@@ -408,3 +408,15 @@ PWT,PrintfulEU
 
 The same multi-token matching is also used by webhook state recovery.
 \n\n## Synced Printful product pilot (v3.9.0)\n\nThis build can test one SKU against an existing configured product in the Printful store.\nThe matching item is created with `sync_variant_id`, so Printful reuses the product's saved garment and print files. Other SKUs continue through the existing custom-item flow.\n\nRailway variables for the first test:\n\n```env\nPRINTFUL_SYNCED_PRODUCT_TEST_SKU=aew6099\nPRINTFUL_SYNCED_PRODUCT_TEST_NAME=New Level Basic Tee\nPRINTFUL_SYNCED_PRODUCT_FALLBACK=true\n```\n\nKeep `PRINTFUL_MODE=draft`. After deployment, open `/api/synced-product-test` (with the admin token if configured). The endpoint should list the Printful sync product ID and each resolved Black/size sync variant.\n\nIf the synced product cannot be found or the ordered size cannot be matched, `PRINTFUL_SYNCED_PRODUCT_FALLBACK=true` keeps the existing custom-item behavior instead of failing the order.\n
+
+## v3.11 targeted existing-draft reprocess test
+
+Adds a manual admin-only endpoint that updates one existing Printful draft in place from the current ShipStation order and current synced-product pilot logic.
+
+POST `/api/reprocess-order` with JSON:
+
+```json
+{"orderNumber":"AEW178603"}
+```
+
+If ADMIN_TOKEN is configured, include `x-admin-token` as usual. The endpoint refuses to create a new Printful order and refuses to modify an order unless its current Printful status is `draft` or `failed`.

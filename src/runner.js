@@ -9,7 +9,8 @@ import {
   createOrder,
   findByExternalId,
   getPrintfulOrder,
-  getPrintfulShipments
+  getPrintfulShipments,
+  updateDraftOrder
 } from './printful.js';
 import { loadState, saveState } from './state.js';
 
@@ -152,6 +153,72 @@ export async function runImport(config) {
   } finally {
     importRunning = false;
   }
+}
+
+
+export async function reprocessOneOrder(orderNumber, config) {
+  const wanted = String(orderNumber || '').trim();
+  if (!wanted) throw new Error('orderNumber is required.');
+
+  const orders = await findOrdersByExactOrderNumber(wanted, config);
+  if (!orders.length) {
+    throw new Error(`No exact ShipStation order found for ${wanted}.`);
+  }
+
+  const group = groupOrders(orders)[0];
+  const payload = await buildPrintfulOrder(group, config);
+  const existingPrintful = await findByExternalId(payload.external_id, config);
+
+  if (!existingPrintful) {
+    throw new Error(
+      `Printful draft @${payload.external_id} was not found. ` +
+      `This endpoint only updates an existing draft; it will not create a new order.`
+    );
+  }
+
+  const status = String(existingPrintful.status || '').toLowerCase();
+  if (!['draft', 'failed'].includes(status)) {
+    throw new Error(
+      `Printful order ${payload.external_id} is ${existingPrintful.status || 'unknown'}, not draft/failed. ` +
+      `It was not changed.`
+    );
+  }
+
+  const updated = await updateDraftOrder(`@${payload.external_id}`, payload, config);
+
+  const state = await loadState(config.stateFile);
+  state.orders ||= {};
+  state.orders[group.orderNumber] = {
+    ...(state.orders[group.orderNumber] || {}),
+    status: 'submitted',
+    orderNumber: group.orderNumber,
+    shipstationOrderIds: group.shipstationOrderIds,
+    printfulOrderId: updated.id || existingPrintful.id,
+    printfulExternalId: payload.external_id,
+    submittedAt: state.orders[group.orderNumber]?.submittedAt || new Date().toISOString(),
+    reprocessedAt: new Date().toISOString(),
+    shipments: state.orders[group.orderNumber]?.shipments || {}
+  };
+  await saveState(config.stateFile, state);
+
+  return {
+    ok: true,
+    orderNumber: group.orderNumber,
+    shipstationOrderIds: group.shipstationOrderIds,
+    printfulOrderId: updated.id || existingPrintful.id,
+    printfulExternalId: payload.external_id,
+    statusBefore: existingPrintful.status,
+    statusAfter: updated.status,
+    itemCount: Array.isArray(updated.items) ? updated.items.length : payload.items.length,
+    items: (updated.items || []).map(item => ({
+      id: item.id,
+      external_id: item.external_id,
+      sync_variant_id: item.sync_variant_id,
+      variant_id: item.variant_id,
+      name: item.name,
+      quantity: item.quantity
+    }))
+  };
 }
 
 function normalizeShipmentRows(rows) {

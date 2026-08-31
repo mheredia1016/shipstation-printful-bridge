@@ -19,7 +19,8 @@ import {
   runTrackingSync,
   getLastRun,
   getLastTrackingRun,
-  processPrintfulShipmentWebhook
+  processPrintfulShipmentWebhook,
+  reprocessOneOrder
 } from './runner.js';
 
 const config = getConfig();
@@ -327,6 +328,21 @@ app.post('/api/artwork-map/bulk', requireAdmin, async (req, res) => {
   }
 });
 
+
+app.post('/api/reprocess-order', requireAdmin, async (req, res) => {
+  try {
+    const orderNumber = String(req.body?.orderNumber || req.query.orderNumber || '').trim();
+    if (!orderNumber) {
+      return res.status(400).json({ error: 'Provide orderNumber, for example AEW178603.' });
+    }
+
+    // Intentionally exact and manual-only. This can modify an existing Printful draft.
+    res.json(await reprocessOneOrder(orderNumber, config));
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
 app.post('/api/run', requireAdmin, async (_req, res) => {
   try {
     res.json(await runImport(config));
@@ -352,7 +368,7 @@ app.get('/api/last-tracking-run', (_req, res) => {
 });
 
 app.listen(config.port, () => {
-  console.log(`ShipStation → Printful bridge v3.10 listening on port ${config.port}`);
+  console.log(`ShipStation → Printful bridge v3.11 listening on port ${config.port}`);
   console.log(`Mode: ${config.printfulMode}`);
   console.log(`Visible Printful order number: ShipStation order number`);
   console.log(`Tracking → ShipStation customer notification: ${config.shipstationNotifyCustomer}`);

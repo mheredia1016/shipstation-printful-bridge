@@ -822,6 +822,18 @@ export async function createOrder(payload, config) {
   return body.result || body;
 }
 
+export async function updateDraftOrder(orderIdOrExternalId, payload, config) {
+  const raw = String(orderIdOrExternalId || '').trim();
+  if (!raw) throw new Error('Printful order ID or external ID is required.');
+
+  const id = raw.startsWith('@') || /^\d+$/.test(raw) ? raw : `@${raw}`;
+  const body = await request(`/orders/${encodeURIComponent(id)}?confirm=false`, config, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  });
+  return body.result || body;
+}
+
 
 export async function getPrintfulWebhookConfig(config) {
   return request('/v2/webhooks', config);
