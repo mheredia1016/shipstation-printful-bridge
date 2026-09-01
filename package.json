@@ -1,6 +1,6 @@
 {
   "name": "shipstation-printful-bridge",
-  "version": "3.13.1",
+  "version": "3.13.2",
   "description": "ShipStation to Printful bridge with automatic OLD-SKU product matching and automatic Printful catalog refresh on cache miss.",
   "type": "module",
   "main": "src/index.js",

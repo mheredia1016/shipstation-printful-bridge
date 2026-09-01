@@ -227,7 +227,7 @@ async function listAllStoreProducts(config, { force = false } = {}) {
   const limit = 100;
 
   while (true) {
-    const result = await printfulRequest(
+    const result = await request(
       `/store/products?limit=${limit}&offset=${offset}`,
       config
     );
