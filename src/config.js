@@ -80,7 +80,7 @@ export function getConfig({ validateSecrets = true } = {}) {
       (process.env.PRINTFUL_SYNCED_PRODUCT_TEST_SKU || '').trim().toLowerCase(),
     printfulSyncedProductTestName:
       (process.env.PRINTFUL_SYNCED_PRODUCT_TEST_NAME || '').trim(),
-    printfulProductCacheMinutes: numberFromEnv('PRINTFUL_PRODUCT_CACHE_MINUTES', 10),
+    printfulProductCacheMinutes: integer('PRINTFUL_PRODUCT_CACHE_MINUTES', 10),
     printfulSyncedProductFallback:
       boolean('PRINTFUL_SYNCED_PRODUCT_FALLBACK', true),
 
