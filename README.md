@@ -442,3 +442,17 @@ instead of guessing.
 
 The old aew6099 pilot remains enabled for backward compatibility until its
 existing Printful product is renamed to the new convention.
+
+
+## v3.13 automatic Printful catalog refresh
+
+The synced-product catalog is cached for 10 minutes by default.
+
+Set:
+
+`PRINTFUL_PRODUCT_CACHE_MINUTES=10`
+
+When an incoming Old SKU is not found in the cached product list, the bridge now
+forces an immediate fresh `/store/products` read from Printful and retries once.
+This means newly-created products named `OLD-SKU | PRODUCT NAME` can be used
+without restarting or redeploying Railway.

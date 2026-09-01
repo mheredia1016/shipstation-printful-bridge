@@ -202,28 +202,50 @@ function itemMatchesSyncedProductPilot(item, config) {
   return oldSku === wantedSku || currentSku === wantedSku;
 }
 
-async function listAllStoreProducts(config) {
-  if (Array.isArray(syncedStoreProductCache.products)) {
-    return syncedStoreProductCache.products;
+let storeProductsCache = {
+  expiresAt: 0,
+  products: []
+};
+
+async function listAllStoreProducts(config, { force = false } = {}) {
+  const now = Date.now();
+  const ttlMs = Math.max(
+    1,
+    Number(config.printfulProductCacheMinutes || 10)
+  ) * 60 * 1000;
+
+  if (
+    !force &&
+    storeProductsCache.products.length &&
+    storeProductsCache.expiresAt > now
+  ) {
+    return storeProductsCache.products;
   }
 
   const products = [];
+  let offset = 0;
+  const limit = 100;
 
-  for (let page = 0; page < config.printfulProductScanMaxPages; page += 1) {
-    const offset = page * 100;
-    const body = await listStoreProductsPage(config, offset);
-    const rows = Array.isArray(body.result) ? body.result : [];
-    products.push(...rows);
+  while (true) {
+    const result = await printfulRequest(
+      `/store/products?limit=${limit}&offset=${offset}`,
+      config
+    );
 
-    const total = Number(body?.paging?.total || 0);
-    if (rows.length < 100 || (total && offset + rows.length >= total)) break;
+    const page = Array.isArray(result?.result) ? result.result : [];
 
-    if (config.printfulRequestDelayMs > 0) {
-      await sleep(config.printfulRequestDelayMs);
-    }
+    products.push(...page);
+
+    if (page.length < limit) break;
+
+    offset += limit;
   }
 
-  syncedStoreProductCache.products = products;
+  storeProductsCache = {
+    products,
+    expiresAt: now + ttlMs
+  };
+
   return products;
 }
 
@@ -263,28 +285,54 @@ async function findStoreProductBySkuPrefix(item, config) {
 
   if (!wantedSkus.length) return null;
 
-  const products = await listAllStoreProducts(config);
+  async function searchProducts(force) {
+    const products = await listAllStoreProducts(config, { force });
 
-  for (const wantedSku of wantedSkus) {
-    const matches = products.filter(product => productSkuPrefix(product) === wantedSku);
-
-    if (matches.length > 1) {
-      throw new Error(
-        `Multiple Printful products use SKU prefix ${wantedSku}: ` +
-        matches.map(storeProductName).join(', ')
+    for (const wantedSku of wantedSkus) {
+      const matches = products.filter(
+        product => productSkuPrefix(product) === wantedSku
       );
+
+      if (matches.length > 1) {
+        throw new Error(
+          `Multiple Printful products use SKU prefix ${wantedSku}: ` +
+          matches.map(storeProductName).join(', ')
+        );
+      }
+
+      if (matches.length === 1) {
+        return {
+          product: await getCachedStoreProduct(matches[0].id, config),
+          matchedSku: wantedSku,
+          matchedBy: wantedSku === oldSku ? 'old_sku' : 'current_sku'
+        };
+      }
     }
 
-    if (matches.length === 1) {
-      return {
-        product: await getCachedStoreProduct(matches[0].id, config),
-        matchedSku: wantedSku,
-        matchedBy: wantedSku === oldSku ? 'old_sku' : 'current_sku'
-      };
-    }
+    return null;
   }
 
-  return null;
+  // Fast path: use the cache.
+  let found = await searchProducts(false);
+  if (found) return found;
+
+  // Critical behavior for newly-created Printful products:
+  // if a SKU prefix wasn't found, refresh the Printful catalog immediately
+  // and retry once instead of waiting for a Railway restart/redeploy.
+  console.log(
+    `[SYNCED PRODUCT CATALOG REFRESH] No cached Printful product for ` +
+    `${oldSku || currentSku}; refreshing store product catalog.`
+  );
+
+  found = await searchProducts(true);
+
+  if (found) {
+    console.log(
+      `[SYNCED PRODUCT CATALOG REFRESH] Found ${found.matchedSku} after refresh.`
+    );
+  }
+
+  return found;
 }
 
 function descriptorHasSize(descriptor, orderedSize) {
