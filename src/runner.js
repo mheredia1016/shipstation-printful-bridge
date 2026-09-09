@@ -7,6 +7,7 @@ import {
 import {
   buildPrintfulOrder,
   createOrder,
+  confirmOrder,
   findByExternalId,
   getPrintfulOrder,
   getPrintfulShipments,
@@ -105,7 +106,45 @@ export async function runImport(config) {
         }
 
         const existingPrintful = await findByExternalId(payload.external_id, config);
-        const printfulOrder = existingPrintful || await createOrder(payload, config);
+        let printfulOrder = existingPrintful || await createOrder(payload, config);
+
+        // Auto-confirm is intentionally strict: EVERY item in the payload must
+        // be an existing Printful synced variant. Any custom/catalog fallback
+        // item keeps the entire order in Draft for manual review.
+        const items = Array.isArray(payload.items) ? payload.items : [];
+        const allItemsSynced =
+          items.length > 0 &&
+          items.every(item => Number(item.sync_variant_id) > 0);
+
+        let autoConfirmed = false;
+        let autoConfirmSkippedReason = null;
+
+        if (config.printfulAutoConfirmSynced) {
+          if (!allItemsSynced) {
+            autoConfirmSkippedReason = 'one_or_more_items_not_synced';
+            console.log(
+              `[AUTO CONFIRM SKIP] ${group.orderNumber} | ` +
+              `At least one item used custom/catalog fallback; leaving Draft.`
+            );
+          } else {
+            const currentStatus = String(printfulOrder?.status || '').toLowerCase();
+
+            if (['draft', 'failed'].includes(currentStatus)) {
+              console.log(
+                `[AUTO CONFIRM] ${group.orderNumber} | ` +
+                `${items.length}/${items.length} item(s) use sync_variant_id; confirming Printful order ${printfulOrder.id}.`
+              );
+              printfulOrder = await confirmOrder(printfulOrder.id, config);
+              autoConfirmed = true;
+            } else {
+              autoConfirmSkippedReason = `status_${currentStatus || 'unknown'}`;
+              console.log(
+                `[AUTO CONFIRM SKIP] ${group.orderNumber} | ` +
+                `Printful order status is ${printfulOrder?.status || 'unknown'}; no confirm call needed.`
+              );
+            }
+          }
+        }
 
         state.orders[stateKey] = {
           status: 'submitted',
@@ -114,6 +153,10 @@ export async function runImport(config) {
           printfulOrderId: printfulOrder.id,
           printfulExternalId: payload.external_id,
           submittedAt: new Date().toISOString(),
+          allItemsSynced,
+          autoConfirmed,
+          autoConfirmSkippedReason,
+          printfulStatus: printfulOrder.status || null,
           shipments: {}
         };
 
@@ -122,8 +165,14 @@ export async function runImport(config) {
         output.submitted += 1;
         output.orders.push({
           orderNumber: group.orderNumber,
-          status: existingPrintful ? 'existing_printful_order' : 'submitted',
+          status: autoConfirmed
+            ? 'auto_confirmed'
+            : (existingPrintful ? 'existing_printful_order' : 'submitted'),
           printfulOrderId: printfulOrder.id,
+          printfulStatus: printfulOrder.status || null,
+          allItemsSynced,
+          autoConfirmed,
+          autoConfirmSkippedReason,
           shipstationOrderIds: group.shipstationOrderIds
         });
 

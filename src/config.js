@@ -83,6 +83,8 @@ export function getConfig({ validateSecrets = true } = {}) {
     printfulProductCacheMinutes: integer('PRINTFUL_PRODUCT_CACHE_MINUTES', 10),
     printfulSyncedProductFallback:
       boolean('PRINTFUL_SYNCED_PRODUCT_FALLBACK', true),
+    printfulAutoConfirmSynced:
+      boolean('PRINTFUL_AUTO_CONFIRM_SYNCED', false),
 
     runOnStart: boolean('RUN_ON_START', true),
     pollIntervalMinutes: integer('POLL_INTERVAL_MINUTES', 10),

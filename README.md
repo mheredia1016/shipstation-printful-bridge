@@ -456,3 +456,24 @@ When an incoming Old SKU is not found in the cached product list, the bridge now
 forces an immediate fresh `/store/products` read from Printful and retries once.
 This means newly-created products named `OLD-SKU | PRODUCT NAME` can be used
 without restarting or redeploying Railway.
+
+
+## v3.11 — auto-confirm fully synced Printful orders
+
+Optional Railway variable:
+
+```env
+PRINTFUL_AUTO_CONFIRM_SYNCED=true
+```
+
+When enabled, the bridge confirms a Printful Draft/Failed order only when
+**every line item** in the generated payload uses an existing
+`sync_variant_id`.
+
+- 100% synced items -> confirm automatically and submit for fulfillment.
+- Any custom/catalog/artwork fallback item -> leave the whole order as Draft.
+- Existing Printful drafts found by `external_id` are also eligible for
+  auto-confirm if every generated item is synced.
+- The switch defaults to `false`.
+
+Confirming a Printful order can charge the configured Printful billing method.

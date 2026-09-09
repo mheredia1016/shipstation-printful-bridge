@@ -222,6 +222,7 @@ app.get('/api/status', async (_req, res) => {
     mode: config.printfulMode,
     stateFile: config.stateFile,
     customFieldValues: config.customFieldValues,
+    printfulAutoConfirmSynced: config.printfulAutoConfirmSynced,
     notifyCustomer: config.shipstationNotifyCustomer,
     notifySalesChannel: config.shipstationNotifySalesChannel,
     printfulStoreId: config.printfulStoreId || null,

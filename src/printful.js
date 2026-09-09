@@ -1046,6 +1046,17 @@ export async function createOrder(payload, config) {
   return body.result || body;
 }
 
+export async function confirmOrder(orderIdOrExternalId, config) {
+  const raw = String(orderIdOrExternalId || '').trim();
+  if (!raw) throw new Error('Printful order ID or external ID is required.');
+
+  const id = raw.startsWith('@') || /^\d+$/.test(raw) ? raw : `@${raw}`;
+  const body = await request(`/orders/${encodeURIComponent(id)}/confirm`, config, {
+    method: 'POST'
+  });
+  return body.result || body;
+}
+
 export async function updateDraftOrder(orderIdOrExternalId, payload, config) {
   const raw = String(orderIdOrExternalId || '').trim();
   if (!raw) throw new Error('Printful order ID or external ID is required.');
