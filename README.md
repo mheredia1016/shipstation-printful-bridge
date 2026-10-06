@@ -513,3 +513,30 @@ POST /api/import-order
 
 It uses an exact ShipStation order-number lookup and still enforces Awaiting
 Shipment plus the configured Printful Custom Field 1 values.
+
+
+## v3.16 — safe size-only synced variant matching
+
+Some synced Printful products, including youth products, expose their store
+variant names as only `XS`, `S`, `M`, `L`, `XL` even when ShipStation contains
+a color such as `Black`.
+
+The matcher still tries strict color + size first. If that fails, it may use
+a size-only synced match only when:
+
+1. the Printful synced product's variant descriptors contain no attributes
+   beyond recognized size tokens; and
+2. exactly one synced variant matches the requested normalized size.
+
+Products whose Printful variant descriptors expose color or another attribute
+do not use this fallback.
+
+Expected example:
+
+```text
+[SYNCED PRODUCT SIZE-ONLY MATCH] aew6180 | black / M -> M |
+Product variants expose size only; color safely ignored.
+```
+
+This produces a `sync_variant_id`, so an otherwise fully synced order remains
+eligible for `PRINTFUL_AUTO_CONFIRM_SYNCED=true`.

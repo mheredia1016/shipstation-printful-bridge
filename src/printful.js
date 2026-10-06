@@ -380,6 +380,63 @@ async function resolveSyncedVariantFromProduct(item, product, config) {
 
   let catalog = null;
 
+  // Safe size-only fallback:
+  // Some synced Printful products expose variant names as only XS/S/M/L/XL
+  // even though ShipStation still supplies a color (for example Black).
+  // Only ignore color when the synced product itself does NOT expose any
+  // meaningful color differentiation in its variant descriptors.
+  if (!match) {
+    const descriptorRows = syncVariants.map(syncVariant => ({
+      syncVariant,
+      descriptor: String(
+        syncVariant?.name ||
+        syncVariant?.variant_name ||
+        ''
+      ).trim()
+    }));
+
+    const descriptorsWithRequestedSize = descriptorRows.filter(row =>
+      row.descriptor &&
+      descriptorHasSize(row.descriptor, orderedSize)
+    );
+
+    const knownSizeTokens = new Set([
+      'XXS', 'XS', 'S', 'M', 'L', 'XL',
+      '2XL', '3XL', '4XL', '5XL', '6XL',
+      'XXL', 'XXXL', 'XXXXL', 'XXXXXL',
+      'YXS', 'YS', 'YM', 'YL', 'YXL'
+    ]);
+
+    const descriptorHasNonSizeText = descriptor => {
+      const tokens = String(descriptor || '')
+        .toUpperCase()
+        .split(/[^A-Z0-9]+/)
+        .filter(Boolean);
+
+      return tokens.some(token => !knownSizeTokens.has(token));
+    };
+
+    const productExposesVariantAttributesBeyondSize =
+      descriptorRows.some(row =>
+        row.descriptor && descriptorHasNonSizeText(row.descriptor)
+      );
+
+    if (
+      !productExposesVariantAttributesBeyondSize &&
+      descriptorsWithRequestedSize.length === 1
+    ) {
+      match = descriptorsWithRequestedSize[0].syncVariant;
+
+      console.log(
+        `[SYNCED PRODUCT SIZE-ONLY MATCH] ` +
+        `${getOldSku(item) || item.sku || '(no SKU)'} | ` +
+        `${orderedColor || 'unknown color'} / ${orderedSize} -> ` +
+        `${descriptorsWithRequestedSize[0].descriptor} | ` +
+        `Product variants expose size only; color safely ignored.`
+      );
+    }
+  }
+
   // Compatibility fallback for the existing Gildan blank configuration.
   if (!match) {
     const catalogVariants = await getCatalogVariants(config);

@@ -1,7 +1,7 @@
 {
   "name": "shipstation-printful-bridge",
-  "version": "3.15.0",
-  "description": "ShipStation to Printful bridge with newest-first catch-up scanning and rate-limit-safe paging.",
+  "version": "3.16.0",
+  "description": "ShipStation to Printful bridge with safe size-only fallback for synced Printful variants.",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
