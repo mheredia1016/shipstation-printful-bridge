@@ -8,6 +8,24 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+let shipstationRequestQueue = Promise.resolve();
+let lastShipstationRequestAt = 0;
+
+async function withShipstationThrottle(config, fn) {
+  const task = shipstationRequestQueue.catch(() => {}).then(async () => {
+    const delayMs = Math.max(0, Number(config.shipstationGlobalDelayMs || 1500));
+    const wait = delayMs - (Date.now() - lastShipstationRequestAt);
+    if (wait > 0) await sleep(wait);
+    try {
+      return await fn();
+    } finally {
+      lastShipstationRequestAt = Date.now();
+    }
+  });
+  shipstationRequestQueue = task;
+  return task;
+}
+
 function retryDelayMs(response, attempt) {
   const retryAfter = response.headers.get('retry-after');
 
@@ -30,18 +48,20 @@ async function request(path, config, options = {}) {
   const maxRetries = Math.max(1, Number(config.apiMaxRetries || 6));
 
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-    const response = await fetch(`${BASE_URL}${path}`, {
-      ...options,
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-        Authorization: authHeader(
-          config.shipstationApiKey,
-          config.shipstationApiSecret
-        ),
-        ...(options.headers || {})
-      }
-    });
+    const response = await withShipstationThrottle(config, () =>
+      fetch(`${BASE_URL}${path}`, {
+        ...options,
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: authHeader(
+            config.shipstationApiKey,
+            config.shipstationApiSecret
+          ),
+          ...(options.headers || {})
+        }
+      })
+    );
 
     const text = await response.text();
     let body;

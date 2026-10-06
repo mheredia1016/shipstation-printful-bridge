@@ -189,6 +189,15 @@ let syncedStoreProductCache = {
   details: new Map()
 };
 
+let importRunCatalogRefreshUsed = false;
+let importRunNegativeSkuCache = new Set();
+
+export function beginPrintfulImportRun() {
+  importRunCatalogRefreshUsed = false;
+  importRunNegativeSkuCache = new Set();
+}
+
+
 function normalizedText(value) {
   return String(value || '').trim().toLowerCase();
 }
@@ -284,6 +293,7 @@ async function findStoreProductBySkuPrefix(item, config) {
   const wantedSkus = [...new Set([oldSku, currentSku].filter(Boolean))];
 
   if (!wantedSkus.length) return null;
+  if (wantedSkus.every(sku => importRunNegativeSkuCache.has(sku))) return null;
 
   async function searchProducts(force) {
     const products = await listAllStoreProducts(config, { force });
@@ -319,20 +329,25 @@ async function findStoreProductBySkuPrefix(item, config) {
   // Critical behavior for newly-created Printful products:
   // if a SKU prefix wasn't found, refresh the Printful catalog immediately
   // and retry once instead of waiting for a Railway restart/redeploy.
-  console.log(
-    `[SYNCED PRODUCT CATALOG REFRESH] No cached Printful product for ` +
-    `${oldSku || currentSku}; refreshing store product catalog.`
-  );
-
-  found = await searchProducts(true);
-
-  if (found) {
+  if (!importRunCatalogRefreshUsed) {
+    importRunCatalogRefreshUsed = true;
     console.log(
-      `[SYNCED PRODUCT CATALOG REFRESH] Found ${found.matchedSku} after refresh.`
+      `[SYNCED PRODUCT CATALOG REFRESH] No cached Printful product for ` +
+      `${oldSku || currentSku}; performing one catalog refresh for this run.`
     );
+    found = await searchProducts(true);
+    if (found) {
+      console.log(`[SYNCED PRODUCT CATALOG REFRESH] Found ${found.matchedSku} after refresh.`);
+      return found;
+    }
   }
 
-  return found;
+  wantedSkus.forEach(sku => importRunNegativeSkuCache.add(sku));
+  console.log(
+    `[SYNCED PRODUCT CATALOG MISS] ${oldSku || currentSku} not found; ` +
+    `not refreshing the catalog again this run.`
+  );
+  return null;
 }
 
 function descriptorHasSize(descriptor, orderedSize) {

@@ -613,3 +613,43 @@ the JSON sent to Printful.
 If an automatically matched product has no verified artwork-map entry, the
 order is rejected rather than falling back to a ShipStation/mockup image.
 This is deliberate production safety behavior.
+
+
+## v3.20 — bounded automatic catch-up
+
+This release is designed to recover older eligible ShipStation orders without
+trying to process the whole backlog in one burst.
+
+Recommended variables:
+
+```env
+CATCHUP_ENABLED=true
+CATCHUP_BATCH_SIZE=25
+SHIPSTATION_GLOBAL_DELAY_MS=1500
+SHIPSTATION_PAGE_DELAY_MS=3000
+POLL_INTERVAL_MINUTES=15
+API_MAX_RETRIES=10
+SHIPSTATION_PAGE_SIZE=500
+SHIPSTATION_MAX_PAGES=20
+```
+
+Each scheduled run scans eligible orders newest-first, removes orders already
+recorded as submitted/shipped in bridge state, and attempts at most 25
+unresolved orders. Because successful/error results are persisted after each
+order, subsequent scheduled runs naturally continue through the remaining
+unresolved backlog rather than re-creating completed orders.
+
+Before creating an order the bridge still performs the Printful external-ID
+lookup. Existing Printful orders produce a `[DUPLICATE GUARD]` log and are not
+created again.
+
+ShipStation requests now share a serialized minimum-delay throttle in addition
+to page delay and 429 Retry-After/backoff handling.
+
+Printful automatic product discovery may force-refresh the store product
+catalog at most once per import run. SKUs still absent after that refresh are
+negative-cached for the rest of the run, preventing repeated full catalog
+refreshes from one catch-up batch.
+
+Exact single-order imports remain available and are not subject to the catch-up
+batch size.

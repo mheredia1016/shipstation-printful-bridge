@@ -117,9 +117,27 @@ export async function runImport(config, options = {}) {
       orders = await listCandidateOrders(config);
     }
 
-    const groups = groupOrders(orders);
+    let groups = groupOrders(orders);
     output.shipstationRecordsFound = orders.length;
     output.groupedOrdersFound = groups.length;
+
+    if (!requestedOrderNumber && config.catchupEnabled) {
+      const batchSize = Math.max(1, Number(config.catchupBatchSize || 25));
+      const unresolved = groups.filter(group => {
+        const existing = state.orders?.[group.orderNumber];
+        return !existing ||
+          !['submitted', 'shipped'].includes(String(existing.status || ''));
+      });
+
+      groups = unresolved.slice(0, batchSize);
+      output.catchupUnresolvedVisible = unresolved.length;
+      output.catchupBatchSelected = groups.length;
+
+      console.log(
+        `[CATCH-UP] ${unresolved.length} unresolved eligible order(s) visible; ` +
+        `processing ${groups.length} this run (batch limit ${batchSize}).`
+      );
+    }
 
     for (const group of groups) {
       const stateKey = group.orderNumber;
@@ -148,6 +166,14 @@ export async function runImport(config, options = {}) {
         }
 
         const existingPrintful = await findByExternalId(payload.external_id, config);
+
+        if (existingPrintful) {
+          console.log(
+            `[DUPLICATE GUARD] ${group.orderNumber} already exists in Printful ` +
+            `(Printful ID ${existingPrintful.id}); no new order will be created.`
+          );
+        }
+
         let printfulOrder = existingPrintful || await createOrder(payload, config);
 
         // Auto-confirm is intentionally strict. An item is production-ready
