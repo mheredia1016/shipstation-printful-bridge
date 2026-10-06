@@ -150,13 +150,16 @@ export async function runImport(config, options = {}) {
         const existingPrintful = await findByExternalId(payload.external_id, config);
         let printfulOrder = existingPrintful || await createOrder(payload, config);
 
-        // Auto-confirm is intentionally strict: EVERY item in the payload must
-        // be an existing Printful synced variant. Any custom/catalog fallback
-        // item keeps the entire order in Draft for manual review.
+        // Auto-confirm is intentionally strict. An item is production-ready
+        // when it either uses a preconfigured sync_variant_id OR v3.19's
+        // verified path: catalog variant + exact SKU-mapped Printful file ID.
         const items = Array.isArray(payload.items) ? payload.items : [];
         const allItemsSynced =
           items.length > 0 &&
-          items.every(item => Number(item.sync_variant_id) > 0);
+          items.every(item =>
+            Number(item.sync_variant_id) > 0 ||
+            item._bridgeProductionReady === true
+          );
 
         let autoConfirmed = false;
         let autoConfirmSkippedReason = null;
@@ -166,7 +169,7 @@ export async function runImport(config, options = {}) {
             autoConfirmSkippedReason = 'one_or_more_items_not_synced';
             console.log(
               `[AUTO CONFIRM SKIP] ${group.orderNumber} | ` +
-              `At least one item used custom/catalog fallback; leaving Draft.`
+              `At least one item lacks a verified production configuration; leaving Draft.`
             );
           } else {
             const currentStatus = String(printfulOrder?.status || '').toLowerCase();
@@ -174,7 +177,9 @@ export async function runImport(config, options = {}) {
             if (['draft', 'failed'].includes(currentStatus)) {
               console.log(
                 `[AUTO CONFIRM] ${group.orderNumber} | ` +
-                `${items.length}/${items.length} item(s) use sync_variant_id; confirming Printful order ${printfulOrder.id}.`
+                `${items.length}/${items.length} item(s) are production-ready ` +
+                `(synced variant or verified catalog variant + artwork); ` +
+                `confirming Printful order ${printfulOrder.id}.`
               );
               printfulOrder = await confirmOrder(printfulOrder.id, config);
               autoConfirmed = true;

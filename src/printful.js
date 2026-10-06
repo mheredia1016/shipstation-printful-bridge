@@ -973,19 +973,61 @@ export async function buildPrintfulOrder(group, config) {
       try {
         const automatic = await resolveAutomaticSyncedStoreVariant(item, config);
         if (automatic) {
+          // Use the synced product to identify the correct Printful blank
+          // (catalog variant), but do NOT inherit files from sync_variant_id.
+          // Production artwork must come from our verified old-SKU artwork map.
+          const artworkMap = await loadArtworkMap(config.artworkMapFile);
+          const oldSku = getOldSku(item);
+          const currentSku = String(item.sku || '').trim();
+          const mappedArtworkFileId =
+            getArtworkFileId(artworkMap, oldSku) ||
+            getArtworkFileId(artworkMap, currentSku);
+
+          if (!mappedArtworkFileId) {
+            throw new Error(
+              `SYNCED_ARTWORK_REQUIRED: ${oldSku || currentSku || '(no SKU)'} ` +
+              `matched ${automatic.productName}, but no verified Printful File ` +
+              `Library artwork ID exists in the artwork map. Refusing to use ` +
+              `the synced variant's inherited files.`
+            );
+          }
+
+          const visibleSku = chooseVisibleSku(item, config);
+          const result = {
+            external_id: itemReference(item, index),
+            variant_id: automatic.catalogVariantId,
+            quantity: Math.max(1, Number(item.quantity || 1)),
+            name: originalTitle,
+            sku: visibleSku,
+            files: [
+              {
+                id: Number(mappedArtworkFileId),
+                type: 'default'
+              }
+            ]
+          };
+
+          // Internal marker for runner.js. Non-enumerable means JSON.stringify
+          // never sends this private flag to Printful.
+          Object.defineProperty(result, '_bridgeProductionReady', {
+            value: true,
+            enumerable: false
+          });
+
           console.log(
-            `[SYNCED PRODUCT AUTO] ${originalOrderNumber} | ` +
+            `[SYNCED PRODUCT + VERIFIED ARTWORK] ${originalOrderNumber} | ` +
             `${automatic.matchedSku} (${automatic.matchedBy}) -> ${automatic.productName} | ` +
-            `${automatic.color} / ${automatic.size} | sync_variant_id=${automatic.syncVariantId}`
+            `${automatic.color} / ${automatic.size} | ` +
+            `catalog_variant_id=${automatic.catalogVariantId} | ` +
+            `artwork_file_id=${Number(mappedArtworkFileId)}`
           );
 
-          return {
-            external_id: itemReference(item, index),
-            sync_variant_id: automatic.syncVariantId,
-            quantity: Math.max(1, Number(item.quantity || 1))
-          };
+          return result;
         }
       } catch (error) {
+        if (String(error.message || '').startsWith('SYNCED_ARTWORK_REQUIRED:')) {
+          throw error;
+        }
         if (!config.printfulSyncedProductFallback) throw error;
         console.warn(
           `[SYNCED PRODUCT AUTO FALLBACK] ${originalOrderNumber} | ` +

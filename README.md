@@ -590,3 +590,26 @@ rename replaces the live state file.
 If no complete valid JSON object can be recovered, the bridge deliberately
 does not replace the live state with an empty state. The corrupted backup is
 preserved and the error remains visible for manual recovery.
+
+
+## v3.19 — verified production artwork for automatically matched products
+
+For an automatic old-SKU match, the bridge no longer submits only
+`sync_variant_id`, because that makes Printful inherit whatever files are
+currently attached to that sync variant.
+
+Instead:
+
+1. the synced Printful product identifies the correct catalog/blank variant;
+2. the exact old SKU is looked up in `/data/artwork-map.json`;
+3. the order item is created with that catalog `variant_id`;
+4. its `files` array contains only the mapped Printful File Library ID as the
+   default production file;
+5. the item is marked internally as production-ready and may auto-confirm.
+
+The internal production-ready marker is non-enumerable and is not included in
+the JSON sent to Printful.
+
+If an automatically matched product has no verified artwork-map entry, the
+order is rejected rather than falling back to a ShipStation/mockup image.
+This is deliberate production safety behavior.
