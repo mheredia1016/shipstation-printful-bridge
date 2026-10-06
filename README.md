@@ -560,3 +560,33 @@ A size-only fallback is still allowed only when every synced variant suffix is
 a recognized size and exactly one variant matches the ordered normalized size.
 A product with suffixes such as `Black / M` or `White / M` will not use this
 fallback.
+
+
+## v3.18 — state-file recovery and atomic persistence
+
+This release addresses startup failures such as:
+
+```text
+SyntaxError: Unexpected non-whitespace character after JSON
+at JSON.parse
+at loadState
+```
+
+The Railway volume is not deleted.
+
+On load, if `bridge-state.json` contains valid JSON followed by accidental
+extra data, the bridge:
+
+1. preserves the original bytes as a timestamped `.corrupt-...bak` file;
+2. extracts the first complete valid JSON object;
+3. validates it;
+4. atomically rewrites the live state file; and
+5. continues using the recovered Printful/ShipStation mappings.
+
+Future saves are serialized inside the Node process and written to a temporary
+file first. The temporary file is re-read and JSON-validated before an atomic
+rename replaces the live state file.
+
+If no complete valid JSON object can be recovered, the bridge deliberately
+does not replace the live state with an empty state. The corrupted backup is
+preserved and the error remains visible for manual recovery.
