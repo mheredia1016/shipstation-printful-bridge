@@ -407,32 +407,51 @@ async function resolveSyncedVariantFromProduct(item, product, config) {
       'YXS', 'YS', 'YM', 'YL', 'YXL'
     ]);
 
-    const descriptorHasNonSizeText = descriptor => {
-      const tokens = String(descriptor || '')
+    // Printful often returns the full product name in each variant descriptor:
+    // "aew6180 | Product Name / M"
+    // For safety decisions, inspect only the variant portion after the final
+    // slash. If there is no slash, fall back to the whole descriptor.
+    const variantSuffix = descriptor => {
+      const raw = String(descriptor || '').trim();
+      const slash = raw.lastIndexOf('/');
+      return (slash >= 0 ? raw.slice(slash + 1) : raw).trim();
+    };
+
+    const suffixIsSizeOnly = descriptor => {
+      const suffix = variantSuffix(descriptor);
+      const tokens = suffix
         .toUpperCase()
         .split(/[^A-Z0-9]+/)
         .filter(Boolean);
 
-      return tokens.some(token => !knownSizeTokens.has(token));
+      return (
+        tokens.length === 1 &&
+        knownSizeTokens.has(tokens[0])
+      );
     };
 
     const productExposesVariantAttributesBeyondSize =
       descriptorRows.some(row =>
-        row.descriptor && descriptorHasNonSizeText(row.descriptor)
+        row.descriptor && !suffixIsSizeOnly(row.descriptor)
       );
+
+    const sizeOnlyCandidates = descriptorsWithRequestedSize.filter(row =>
+      suffixIsSizeOnly(row.descriptor) &&
+      normalizeSize(variantSuffix(row.descriptor)) === orderedSize
+    );
 
     if (
       !productExposesVariantAttributesBeyondSize &&
-      descriptorsWithRequestedSize.length === 1
+      sizeOnlyCandidates.length === 1
     ) {
-      match = descriptorsWithRequestedSize[0].syncVariant;
+      match = sizeOnlyCandidates[0].syncVariant;
 
       console.log(
         `[SYNCED PRODUCT SIZE-ONLY MATCH] ` +
         `${getOldSku(item) || item.sku || '(no SKU)'} | ` +
         `${orderedColor || 'unknown color'} / ${orderedSize} -> ` +
-        `${descriptorsWithRequestedSize[0].descriptor} | ` +
-        `Product variants expose size only; color safely ignored.`
+        `${variantSuffix(sizeOnlyCandidates[0].descriptor)} | ` +
+        `Printful variant suffix is size-only; color safely ignored.`
       );
     }
   }

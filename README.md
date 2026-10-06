@@ -540,3 +540,23 @@ Product variants expose size only; color safely ignored.
 
 This produces a `sync_variant_id`, so an otherwise fully synced order remains
 eligible for `PRINTFUL_AUTO_CONFIRM_SYNCED=true`.
+
+
+## v3.17 — full descriptor size-only fix
+
+Printful store variants may be returned as full descriptors such as:
+
+```text
+aew6180 | Death Riders - Professionals Youth T-Shirt / XS
+aew6180 | Death Riders - Professionals Youth T-Shirt / S
+aew6180 | Death Riders - Professionals Youth T-Shirt / M
+```
+
+v3.16 incorrectly treated the product-title words as variant attributes.
+v3.17 evaluates only the portion after the final `/` when determining whether
+the synced product is size-only.
+
+A size-only fallback is still allowed only when every synced variant suffix is
+a recognized size and exactly one variant matches the ordered normalized size.
+A product with suffixes such as `Black / M` or `White / M` will not use this
+fallback.

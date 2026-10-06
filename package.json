@@ -1,7 +1,7 @@
 {
   "name": "shipstation-printful-bridge",
-  "version": "3.16.0",
-  "description": "ShipStation to Printful bridge with safe size-only fallback for synced Printful variants.",
+  "version": "3.17.0",
+  "description": "ShipStation to Printful bridge with corrected size-only matching for full Printful variant descriptors.",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
