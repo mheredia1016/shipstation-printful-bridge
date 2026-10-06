@@ -23,7 +23,7 @@ function retryDelayMs(response, attempt) {
     }
   }
 
-  return Math.min(30000, 2000 * (2 ** attempt));
+  return Math.min(120000, 5000 * (2 ** attempt));
 }
 
 async function request(path, config, options = {}) {
@@ -139,7 +139,7 @@ export async function listCandidateOrders(config) {
       pageSize: String(config.pageSize),
       page: String(page),
       sortBy: 'OrderDate',
-      sortDir: 'ASC'
+      sortDir: config.shipstationScanNewestFirst ? 'DESC' : 'ASC'
     });
 
     const result = await request(`/orders?${params}`, config);
@@ -159,6 +159,10 @@ export async function listCandidateOrders(config) {
     }
 
     if (orders.length < config.pageSize || page >= Number(result.pages || 1)) break;
+
+    // Space page requests out so a large Awaiting Shipment backlog does not
+    // burst the ShipStation API and trigger 429s.
+    await sleep(config.shipstationPageDelayMs || 1500);
   }
 
   return candidates;

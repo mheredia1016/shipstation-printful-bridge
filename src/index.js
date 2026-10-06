@@ -348,7 +348,27 @@ app.post('/api/run', requireAdmin, async (_req, res) => {
   try {
     res.json(await runImport(config));
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    const status = /already running/i.test(error.message) ? 409 : 500;
+    res.status(status).json({ error: error.message });
+  }
+});
+
+app.post('/api/import-order', requireAdmin, async (req, res) => {
+  try {
+    const orderNumber = String(
+      req.body?.orderNumber || req.query?.orderNumber || ''
+    ).trim();
+
+    if (!orderNumber) {
+      return res.status(400).json({
+        error: 'Provide orderNumber, for example AEW203891.'
+      });
+    }
+
+    res.json(await runImport(config, { orderNumber }));
+  } catch (error) {
+    const status = /already running/i.test(error.message) ? 409 : 400;
+    res.status(status).json({ error: error.message });
   }
 });
 
@@ -369,7 +389,7 @@ app.get('/api/last-tracking-run', (_req, res) => {
 });
 
 app.listen(config.port, () => {
-  console.log(`ShipStation → Printful bridge v3.13.2 listening on port ${config.port}`);
+  console.log(`ShipStation → Printful bridge v3.15 listening on port ${config.port}`);
   console.log(`Mode: ${config.printfulMode}`);
   console.log(`Visible Printful order number: ShipStation order number`);
   console.log(`Tracking → ShipStation customer notification: ${config.shipstationNotifyCustomer}`);

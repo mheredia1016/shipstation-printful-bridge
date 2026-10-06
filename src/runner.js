@@ -53,7 +53,7 @@ export function getLastTrackingRun() {
   return lastTrackingRun;
 }
 
-export async function runImport(config) {
+export async function runImport(config, options = {}) {
   if (importRunning) throw new Error('An import is already running.');
   importRunning = true;
 
@@ -70,10 +70,52 @@ export async function runImport(config) {
   };
 
   try {
-    const [orders, state] = await Promise.all([
-      listCandidateOrders(config),
-      loadState(config.stateFile)
-    ]);
+    const state = await loadState(config.stateFile);
+
+    let orders;
+    const requestedOrderNumber = String(options.orderNumber || '').trim();
+
+    if (requestedOrderNumber) {
+      const exactOrders = await findOrdersByExactOrderNumber(
+        requestedOrderNumber,
+        config
+      );
+
+      const expectedValues = Array.isArray(config.customFieldValues)
+        ? config.customFieldValues
+        : String(config.customFieldValue || 'Printful')
+            .split(',')
+            .map(value => value.trim().toLowerCase())
+            .filter(Boolean);
+
+      orders = exactOrders.filter(order => {
+        const correctStatus =
+          String(order.orderStatus || '').toLowerCase() ===
+          String(config.shipstationOrderStatus || '').toLowerCase();
+
+        const fieldValues = String(
+          order?.advancedOptions?.customField1 || ''
+        )
+          .split(',')
+          .map(value => value.trim().toLowerCase())
+          .filter(Boolean);
+
+        return (
+          correctStatus &&
+          expectedValues.some(value => fieldValues.includes(value))
+        );
+      });
+
+      if (!orders.length) {
+        throw new Error(
+          `${requestedOrderNumber} was not eligible. It must be in ` +
+          `${config.shipstationOrderStatus} and Custom Field 1 must contain ` +
+          `${config.customFieldValues.join(', ')}.`
+        );
+      }
+    } else {
+      orders = await listCandidateOrders(config);
+    }
 
     const groups = groupOrders(orders);
     output.shipstationRecordsFound = orders.length;

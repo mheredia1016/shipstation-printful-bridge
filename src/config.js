@@ -40,6 +40,8 @@ export function getConfig({ validateSecrets = true } = {}) {
       .filter(Boolean),
     pageSize: Math.min(integer('SHIPSTATION_PAGE_SIZE', 100), 500),
     maxPages: integer('SHIPSTATION_MAX_PAGES', 10),
+    shipstationPageDelayMs: integer('SHIPSTATION_PAGE_DELAY_MS', 1500),
+    shipstationScanNewestFirst: boolean('SHIPSTATION_SCAN_NEWEST_FIRST', true),
     shipstationNotifyCustomer: boolean('SHIPSTATION_NOTIFY_CUSTOMER', false),
     shipstationNotifySalesChannel: boolean('SHIPSTATION_NOTIFY_SALES_CHANNEL', true),
     shipstationFallbackCarrierCode: process.env.SHIPSTATION_FALLBACK_CARRIER_CODE || 'other',

@@ -477,3 +477,39 @@ When enabled, the bridge confirms a Printful Draft/Failed order only when
 - The switch defaults to `false`.
 
 Confirming a Printful order can charge the configured Printful billing method.
+
+
+## v3.15 — newest-first catch-up fix
+
+The uploaded live source was scanning `awaiting_shipment` orders by
+`OrderDate ASC` and stopping at `SHIPSTATION_MAX_PAGES`. With a large backlog,
+newer Printful orders could therefore sit beyond the scanned pages.
+
+v3.15 changes the normal scan to newest-first by default:
+
+```env
+SHIPSTATION_SCAN_NEWEST_FIRST=true
+SHIPSTATION_PAGE_DELAY_MS=1500
+```
+
+Keep a sufficiently large page size/max-page window, for example:
+
+```env
+SHIPSTATION_PAGE_SIZE=500
+SHIPSTATION_MAX_PAGES=20
+API_MAX_RETRIES=8
+```
+
+The newest orders are now examined on page 1 instead of after the oldest
+Awaiting Shipment backlog. Page requests are spaced by 1.5 seconds, and 429
+backoff can wait up to 120 seconds.
+
+A single-order endpoint is also available:
+
+```text
+POST /api/import-order
+{"orderNumber":"AEW203891"}
+```
+
+It uses an exact ShipStation order-number lookup and still enforces Awaiting
+Shipment plus the configured Printful Custom Field 1 values.
