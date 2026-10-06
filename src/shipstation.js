@@ -143,7 +143,7 @@ export async function verifyShipStation(config) {
   };
 }
 
-export async function listCandidateOrders(config) {
+export async function listCandidateOrders(config, options = {}) {
   const candidates = [];
   const expectedValues = Array.isArray(config.customFieldValues)
     ? config.customFieldValues
@@ -151,6 +151,10 @@ export async function listCandidateOrders(config) {
         .split(',')
         .map(value => value.trim().toLowerCase())
         .filter(Boolean);
+
+  const shouldStop = typeof options.shouldStop === 'function'
+    ? options.shouldStop
+    : null;
 
   for (let page = 1; page <= config.maxPages; page += 1) {
     const params = new URLSearchParams({
@@ -165,23 +169,36 @@ export async function listCandidateOrders(config) {
     const result = await request(`/orders?${params}`, config);
     const orders = Array.isArray(result.orders) ? result.orders : [];
 
+    const pageCandidates = [];
     for (const order of orders) {
       const values = String(order?.advancedOptions?.customField1 || '')
         .split(',')
         .map(value => value.trim().toLowerCase())
         .filter(Boolean);
 
-      if (
-        expectedValues.some(expected => values.includes(expected))
-      ) {
+      if (expectedValues.some(expected => values.includes(expected))) {
         candidates.push(order);
+        pageCandidates.push(order);
       }
     }
 
-    if (orders.length < config.pageSize || page >= Number(result.pages || 1)) break;
+    console.log(
+      `[SHIPSTATION SCAN] page ${page}: ${orders.length} awaiting-shipment record(s), ` +
+      `${pageCandidates.length} eligible Printful record(s), ${candidates.length} eligible total.`
+    );
 
-    // Space page requests out so a large Awaiting Shipment backlog does not
-    // burst the ShipStation API and trigger 429s.
+    if (shouldStop && await shouldStop(candidates, {
+      page,
+      pageCandidates,
+      result
+    })) {
+      console.log(
+        `[SHIPSTATION SCAN] Early stop after page ${page}; catch-up batch is full.`
+      );
+      break;
+    }
+
+    if (orders.length < config.pageSize || page >= Number(result.pages || 1)) break;
     await sleep(config.shipstationPageDelayMs || 1500);
   }
 

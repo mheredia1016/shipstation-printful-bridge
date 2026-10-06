@@ -389,7 +389,7 @@ app.get('/api/last-tracking-run', (_req, res) => {
 });
 
 app.listen(config.port, () => {
-  console.log(`ShipStation → Printful bridge v3.20 listening on port ${config.port}`);
+  console.log(`ShipStation → Printful bridge v3.21 listening on port ${config.port}`);
   console.log(`Mode: ${config.printfulMode}`);
   console.log(`Visible Printful order number: ShipStation order number`);
   console.log(`Tracking → ShipStation customer notification: ${config.shipstationNotifyCustomer}`);
@@ -419,15 +419,26 @@ app.listen(config.port, () => {
     }, 15000).unref();
   }
 
-  setInterval(() => {
-    runImport(config)
-      .then(result => console.log(
-        `Scheduled import: ${result.groupedOrdersFound} orders, ` +
-        `${result.submitted} submitted, ${result.skipped} skipped, ` +
-        `${result.failed} failed.`
-      ))
-      .catch(error => console.error('Scheduled import failed:', error));
-  }, config.pollIntervalMinutes * 60 * 1000).unref();
+  const scheduleNextImport = () => {
+    const timer = setTimeout(async () => {
+      try {
+        const result = await runImport(config);
+        console.log(
+          `Scheduled import: ${result.groupedOrdersFound} orders, ` +
+          `${result.submitted} submitted, ${result.skipped} skipped, ` +
+          `${result.failed} failed.`
+        );
+      } catch (error) {
+        console.error('Scheduled import failed:', error);
+      } finally {
+        scheduleNextImport();
+      }
+    }, config.pollIntervalMinutes * 60 * 1000);
+
+    timer.unref();
+  };
+
+  scheduleNextImport();
 
   setInterval(() => {
     runTrackingSync(config).catch(error => console.error('Scheduled tracking sync failed:', error));

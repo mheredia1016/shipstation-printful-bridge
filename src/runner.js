@@ -113,6 +113,21 @@ export async function runImport(config, options = {}) {
           `${config.customFieldValues.join(', ')}.`
         );
       }
+    } else if (config.catchupEnabled) {
+      const batchSize = Math.max(1, Number(config.catchupBatchSize || 25));
+
+      orders = await listCandidateOrders(config, {
+        shouldStop: async candidates => {
+          const candidateGroups = groupOrders(candidates);
+          const unresolved = candidateGroups.filter(group => {
+            const existing = state.orders?.[group.orderNumber];
+            return !existing ||
+              !['submitted', 'shipped'].includes(String(existing.status || ''));
+          });
+
+          return unresolved.length >= batchSize;
+        }
+      });
     } else {
       orders = await listCandidateOrders(config);
     }
@@ -251,6 +266,10 @@ export async function runImport(config, options = {}) {
 
         await sleep(config.printfulRequestDelayMs);
       } catch (error) {
+        console.error(
+          `[IMPORT FAILED] ${group.orderNumber} | ${error?.message || error}`
+        );
+
         state.orders[stateKey] = {
           status: 'error',
           orderNumber: group.orderNumber,

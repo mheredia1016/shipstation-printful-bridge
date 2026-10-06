@@ -653,3 +653,22 @@ refreshes from one catch-up batch.
 
 Exact single-order imports remain available and are not subject to the catch-up
 batch size.
+
+
+## v3.21 — early-stopping ShipStation pagination
+
+Catch-up no longer fetches every configured ShipStation page before applying the
+25-order batch limit. After each page, eligible records are grouped by order
+number and compared with persisted bridge state. As soon as at least
+`CATCHUP_BATCH_SIZE` unresolved groups are visible, pagination stops.
+
+This keeps the existing duplicate guard and state-based recovery while avoiding
+page 14/page 18 requests when the next batch is already available on an earlier
+page.
+
+Every failed order now emits `[IMPORT FAILED] ORDER | reason` to make a
+zero-submission batch diagnosable directly from Railway logs.
+
+Scheduled imports use a self-scheduling timeout rather than `setInterval`, so a
+slow import cannot cause another scheduled import to start before its own
+interval has elapsed after completion.
