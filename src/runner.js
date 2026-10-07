@@ -116,7 +116,9 @@ export async function runImport(config, options = {}) {
     } else if (config.catchupEnabled) {
       const batchSize = Math.max(1, Number(config.catchupBatchSize || 25));
 
-      orders = await listCandidateOrders(config, {
+      // Pass 1: always protect new orders by taking the newest unresolved batch.
+      const newestOrders = await listCandidateOrders(config, {
+        scanLabel: 'NEWEST',
         shouldStop: async candidates => {
           const candidateGroups = groupOrders(candidates);
           const unresolved = candidateGroups.filter(group => {
@@ -124,10 +126,87 @@ export async function runImport(config, options = {}) {
             return !existing ||
               !['submitted', 'shipped'].includes(String(existing.status || ''));
           });
-
           return unresolved.length >= batchSize;
         }
       });
+
+      const newestGroups = groupOrders(newestOrders).filter(group => {
+        const existing = state.orders?.[group.orderNumber];
+        return !existing ||
+          !['submitted', 'shipped'].includes(String(existing.status || ''));
+      }).slice(0, batchSize);
+      const newestSelectedNumbers = new Set(
+        newestGroups.map(group => group.orderNumber)
+      );
+      orders = newestOrders.filter(order =>
+        newestSelectedNumbers.has(String(order.orderNumber || order.orderId))
+      );
+
+      // Pass 2: walk older ShipStation pages with a persistent cursor so an
+      // old backlog can never remain hidden behind the newest page forever.
+      if (config.backlogEnabled) {
+        const backlogBatchSize = Math.max(1, Number(config.backlogBatchSize || 25));
+        const firstBacklogPage = Math.max(2, Number(config.backlogStartPage || 2));
+        let backlogPage = Math.max(
+          firstBacklogPage,
+          Number(state.meta?.shipstationBacklogPage || firstBacklogPage)
+        );
+        let lastScannedPage = backlogPage;
+        let totalPages = Number(config.maxPages || 1);
+
+        if (backlogPage > Number(config.maxPages || 1)) backlogPage = firstBacklogPage;
+
+        const backlogOrders = await listCandidateOrders(config, {
+          startPage: backlogPage,
+          pagesToScan: Math.max(1, Number(config.backlogPagesPerRun || 2)),
+          scanLabel: 'BACKLOG',
+          onPage: ({ page, result }) => {
+            lastScannedPage = page;
+            totalPages = Math.min(
+              Number(config.maxPages || 1),
+              Math.max(1, Number(result?.pages || 1))
+            );
+          }
+        });
+
+        const backlogGroups = groupOrders(backlogOrders);
+        const unresolvedBacklog = backlogGroups.filter(group => {
+          const existing = state.orders?.[group.orderNumber];
+          return !existing ||
+            !['submitted', 'shipped'].includes(String(existing.status || ''));
+        });
+        const selectedBacklog = unresolvedBacklog.slice(0, backlogBatchSize);
+        const selectedNumbers = new Set(selectedBacklog.map(group => group.orderNumber));
+
+        // Only add records belonging to the selected backlog groups.
+        orders.push(...backlogOrders.filter(order =>
+          selectedNumbers.has(String(order.orderNumber || order.orderId))
+        ));
+
+        // If everything unresolved in the scanned window fits in this run,
+        // advance. Otherwise keep the cursor here until this window is drained.
+        if (unresolvedBacklog.length <= backlogBatchSize) {
+          const nextPage = lastScannedPage + 1;
+          state.meta.shipstationBacklogPage =
+            nextPage > totalPages ? firstBacklogPage : nextPage;
+        } else {
+          state.meta.shipstationBacklogPage = backlogPage;
+        }
+        state.meta.shipstationBacklogUpdatedAt = new Date().toISOString();
+        await saveState(config.stateFile, state);
+
+        output.backlogPage = backlogPage;
+        output.backlogLastScannedPage = lastScannedPage;
+        output.backlogUnresolvedVisible = unresolvedBacklog.length;
+        output.backlogBatchSelected = selectedBacklog.length;
+
+        console.log(
+          `[BACKLOG] pages ${backlogPage}-${lastScannedPage}: ` +
+          `${unresolvedBacklog.length} unresolved eligible order(s); ` +
+          `selected ${selectedBacklog.length}. Next cursor: ` +
+          `${state.meta.shipstationBacklogPage}.`
+        );
+      }
     } else {
       orders = await listCandidateOrders(config);
     }
@@ -137,20 +216,32 @@ export async function runImport(config, options = {}) {
     output.groupedOrdersFound = groups.length;
 
     if (!requestedOrderNumber && config.catchupEnabled) {
-      const batchSize = Math.max(1, Number(config.catchupBatchSize || 25));
+      const newestBatchSize = Math.max(1, Number(config.catchupBatchSize || 25));
+      const backlogBatchSize = config.backlogEnabled
+        ? Math.max(1, Number(config.backlogBatchSize || 25))
+        : 0;
       const unresolved = groups.filter(group => {
         const existing = state.orders?.[group.orderNumber];
         return !existing ||
           !['submitted', 'shipped'].includes(String(existing.status || ''));
       });
 
-      groups = unresolved.slice(0, batchSize);
+      // The NEWEST scan is inserted first and is capped at catchupBatchSize.
+      // BACKLOG records were already capped before being appended above.
+      const newest = unresolved.slice(0, newestBatchSize);
+      const newestNumbers = new Set(newest.map(group => group.orderNumber));
+      const backlog = unresolved
+        .filter(group => !newestNumbers.has(group.orderNumber))
+        .slice(0, backlogBatchSize);
+      groups = [...newest, ...backlog];
+
       output.catchupUnresolvedVisible = unresolved.length;
       output.catchupBatchSelected = groups.length;
 
       console.log(
         `[CATCH-UP] ${unresolved.length} unresolved eligible order(s) visible; ` +
-        `processing ${groups.length} this run (batch limit ${batchSize}).`
+        `processing ${groups.length} this run ` +
+        `(${newest.length} newest + ${backlog.length} backlog).`
       );
     }
 

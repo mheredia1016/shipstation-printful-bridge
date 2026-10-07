@@ -25,6 +25,9 @@ function normalizeState(value) {
   if (!state.meta || typeof state.meta !== 'object' || Array.isArray(state.meta)) {
     state.meta = {};
   }
+  if (!state.orders || typeof state.orders !== 'object' || Array.isArray(state.orders)) {
+    state.orders = {};
+  }
 
   return state;
 }

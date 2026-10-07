@@ -156,7 +156,17 @@ export async function listCandidateOrders(config, options = {}) {
     ? options.shouldStop
     : null;
 
-  for (let page = 1; page <= config.maxPages; page += 1) {
+  const startPage = Math.max(1, Number(options.startPage || 1));
+  const pagesToScan = options.pagesToScan == null
+    ? null
+    : Math.max(1, Number(options.pagesToScan));
+  const endPage = pagesToScan == null
+    ? Number(config.maxPages)
+    : Math.min(Number(config.maxPages), startPage + pagesToScan - 1);
+  const scanLabel = options.scanLabel ? `[${options.scanLabel}] ` : '';
+  const onPage = typeof options.onPage === 'function' ? options.onPage : null;
+
+  for (let page = startPage; page <= endPage; page += 1) {
     const params = new URLSearchParams({
       orderStatus: config.shipstationOrderStatus,
       storeId: String(config.shipstationStoreId),
@@ -183,9 +193,13 @@ export async function listCandidateOrders(config, options = {}) {
     }
 
     console.log(
-      `[SHIPSTATION SCAN] page ${page}: ${orders.length} awaiting-shipment record(s), ` +
+      `[SHIPSTATION SCAN] ${scanLabel}page ${page}: ${orders.length} awaiting-shipment record(s), ` +
       `${pageCandidates.length} eligible Printful record(s), ${candidates.length} eligible total.`
     );
+
+    if (onPage) {
+      await onPage({ page, pageCandidates, result, candidates });
+    }
 
     if (shouldStop && await shouldStop(candidates, {
       page,
@@ -193,7 +207,7 @@ export async function listCandidateOrders(config, options = {}) {
       result
     })) {
       console.log(
-        `[SHIPSTATION SCAN] Early stop after page ${page}; catch-up batch is full.`
+        `[SHIPSTATION SCAN] ${scanLabel}Early stop after page ${page}; catch-up batch is full.`
       );
       break;
     }
