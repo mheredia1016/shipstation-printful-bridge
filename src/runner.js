@@ -38,8 +38,21 @@ function groupOrders(orders) {
     }
 
     const group = groups.get(key);
-    group.orders.push(order);
-    group.shipstationOrderIds.push(Number(order.orderId));
+
+    // v3.26: the same ShipStation record can be returned by more than one
+    // discovery pass (NEWEST, BACKLOG, and 30-DAY). Never append the same
+    // ShipStation orderId twice or its line items will be duplicated in the
+    // Printful payload and Printful will reject the order with
+    // "Duplicate item external ID".
+    const shipstationOrderId = Number(order.orderId);
+    const alreadyIncluded = group.shipstationOrderIds.some(
+      existingId => Number(existingId) === shipstationOrderId
+    );
+
+    if (!alreadyIncluded) {
+      group.orders.push(order);
+      group.shipstationOrderIds.push(shipstationOrderId);
+    }
   }
 
   return [...groups.values()];

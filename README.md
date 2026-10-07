@@ -708,3 +708,12 @@ RECONCILE_30_DAY_PAGES_PER_RUN=2
 ```
 
 Tracking scheduling is also recursive in v3.25, so a slow tracking run cannot overlap the next scheduled tracking run.
+
+
+## v3.26 — duplicate ShipStation record protection
+
+The NEWEST, BACKLOG, and 30-DAY discovery passes can overlap. v3.26 deduplicates
+ShipStation records by `orderId` inside each grouped order before the Printful
+payload is built. This prevents the same ShipStation line items from being added
+twice and avoids Printful `Duplicate item external ID` 400 errors while preserving
+legitimate item quantities and separate ShipStation split records.
