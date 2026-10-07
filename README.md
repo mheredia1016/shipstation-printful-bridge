@@ -717,3 +717,23 @@ ShipStation records by `orderId` inside each grouped order before the Printful
 payload is built. This prevents the same ShipStation line items from being added
 twice and avoids Printful `Duplicate item external ID` 400 errors while preserving
 legitimate item quantities and separate ShipStation split records.
+
+
+## v3.27 — 30-day reconciliation oldest-first
+
+The independent 30-day reconciliation pass now explicitly requests ShipStation orders with `sortDir=ASC` inside the rolling date window. Page 1 therefore begins at the oldest orders in the window (about 30 days ago) and advances toward today over successive runs. NEWEST and BACKLOG behavior is unchanged.
+
+Expected log prefix:
+
+```text
+[SHIPSTATION SCAN] [30-DAY OLDEST-FIRST] page 1: ...
+[30-DAY RECONCILE OLDEST-FIRST] 2026-09-07 through 2026-10-07 | ...
+```
+
+
+## v3.28 — verified synced variant preserves saved placement
+
+- For automatic synced products, the bridge now verifies the expected old/current SKU artwork on the exact matched Printful sync variant.
+- When verified, orders use `sync_variant_id`, preserving the existing Printful product's saved placement, scale and print-area configuration.
+- If the exact matched sync variant cannot be verified, the bridge retains the v3.27 catalog-variant + verified artwork fallback.
+- No Railway environment variable changes are required.

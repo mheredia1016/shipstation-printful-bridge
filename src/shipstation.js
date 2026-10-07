@@ -167,7 +167,7 @@ export async function listCandidateOrders(config, options = {}) {
       pageSize: String(config.pageSize),
       page: String(page),
       sortBy: 'OrderDate',
-      sortDir: config.shipstationScanNewestFirst ? 'DESC' : 'ASC'
+      sortDir: options.sortDir || (config.shipstationScanNewestFirst ? 'DESC' : 'ASC')
     });
 
     // ShipStation v1 supports order-date bounds on List Orders. Reconciliation

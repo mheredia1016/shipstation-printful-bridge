@@ -232,7 +232,8 @@ export async function runImport(config, options = {}) {
         const reconcileOrders = await listCandidateOrders(config, {
           startPage: reconcilePage,
           pagesToScan: Math.max(1, Number(config.reconcile30DayPagesPerRun || 2)),
-          scanLabel: '30-DAY',
+          scanLabel: '30-DAY OLDEST-FIRST',
+          sortDir: 'ASC',
           orderDateStart,
           orderDateEnd,
           onPage: ({ page, result }) => {
@@ -279,7 +280,7 @@ export async function runImport(config, options = {}) {
         output.reconcile30DayBatchSelected = selected30Day.length;
 
         console.log(
-          `[30-DAY RECONCILE] ${orderDateStart.slice(0, 10)} through ${orderDateEnd.slice(0, 10)} | ` +
+          `[30-DAY RECONCILE OLDEST-FIRST] ${orderDateStart.slice(0, 10)} through ${orderDateEnd.slice(0, 10)} | ` +
           `pages ${reconcilePage}-${lastScannedPage}: ${unresolved30Day.length} unresolved eligible order(s); ` +
           `selected ${selected30Day.length}. Next cursor: ${state.meta.reconcile30DayPage}.`
         );

@@ -745,6 +745,26 @@ async function scanAttachedStoreArtwork(config, neededSkus = []) {
 }
 
 
+
+async function verifyMatchedSyncVariantArtwork(automatic, wantedSkus, config) {
+  const wanted = new Set(wantedSkus.map(normalizeArtworkSku).filter(Boolean));
+  if (!wanted.size || !automatic?.productId || !automatic?.syncVariantId) return null;
+
+  const details = await getCachedStoreProduct(automatic.productId, config);
+  const variants = Array.isArray(details?.sync_variants) ? details.sync_variants : [];
+  const matchedVariant = variants.find(variant => Number(variant.id) === Number(automatic.syncVariantId));
+  if (!matchedVariant) return null;
+
+  for (const file of matchedVariant.files || []) {
+    const filenameSku = normalizeArtworkSku(file.filename);
+    if (!wanted.has(filenameSku)) continue;
+    if (!file.id || (file.status && file.status !== 'ok')) continue;
+    return { sku: filenameSku, fileId: Number(file.id) };
+  }
+
+  return null;
+}
+
 async function discoverArtworkFromMatchedProduct(automatic, wantedSkus, config) {
   const wanted = new Set(wantedSkus.map(normalizeArtworkSku).filter(Boolean));
   if (!wanted.size || !automatic?.productId) return null;
@@ -1021,12 +1041,37 @@ export async function buildPrintfulOrder(group, config) {
       try {
         const automatic = await resolveAutomaticSyncedStoreVariant(item, config);
         if (automatic) {
-          // Use the synced product to identify the correct Printful blank
-          // (catalog variant), but do NOT inherit files from sync_variant_id.
-          // Production artwork must come from our verified old-SKU artwork map.
-          const artworkMap = await loadArtworkMap(config.artworkMapFile);
           const oldSku = getOldSku(item);
           const currentSku = String(item.sku || '').trim();
+
+          // v3.28: Prefer the exact existing synced variant when that SAME
+          // variant contains the expected old/current SKU artwork. This keeps
+          // Printful's saved placement, scale and print-area configuration.
+          const verifiedSyncArtwork = await verifyMatchedSyncVariantArtwork(
+            automatic,
+            [oldSku, currentSku],
+            config
+          );
+
+          if (verifiedSyncArtwork) {
+            console.log(
+              `[SYNCED VARIANT + VERIFIED ARTWORK + SAVED PLACEMENT] ${originalOrderNumber} | ` +
+              `${automatic.matchedSku} (${automatic.matchedBy}) -> ${automatic.productName} | ` +
+              `${automatic.color} / ${automatic.size} | sync_variant_id=${automatic.syncVariantId} | ` +
+              `artwork_file_id=${verifiedSyncArtwork.fileId}`
+            );
+
+            return {
+              external_id: itemReference(item, index),
+              sync_variant_id: automatic.syncVariantId,
+              quantity: Math.max(1, Number(item.quantity || 1))
+            };
+          }
+
+          // Safe fallback: if the matched sync variant itself cannot be
+          // verified, retain the v3.27 catalog-variant + verified artwork path.
+          // This controls the production file but does not inherit placement.
+          const artworkMap = await loadArtworkMap(config.artworkMapFile);
           let mappedArtworkFileId =
             getArtworkFileId(artworkMap, oldSku) ||
             getArtworkFileId(artworkMap, currentSku);

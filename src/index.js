@@ -389,7 +389,7 @@ app.get('/api/last-tracking-run', (_req, res) => {
 });
 
 app.listen(config.port, () => {
-  console.log(`ShipStation → Printful bridge v3.26 listening on port ${config.port}`);
+  console.log(`ShipStation → Printful bridge v3.28 listening on port ${config.port}`);
   console.log(`Mode: ${config.printfulMode}`);
   console.log(`Visible Printful order number: ShipStation order number`);
   console.log(`Tracking → ShipStation customer notification: ${config.shipstationNotifyCustomer}`);
