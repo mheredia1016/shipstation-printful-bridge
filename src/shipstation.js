@@ -145,12 +145,6 @@ export async function verifyShipStation(config) {
 
 export async function listCandidateOrders(config, options = {}) {
   const candidates = [];
-  const expectedValues = Array.isArray(config.customFieldValues)
-    ? config.customFieldValues
-    : String(config.customFieldValue || 'Printful')
-        .split(',')
-        .map(value => value.trim().toLowerCase())
-        .filter(Boolean);
 
   const shouldStop = typeof options.shouldStop === 'function'
     ? options.shouldStop
@@ -186,7 +180,9 @@ export async function listCandidateOrders(config, options = {}) {
         .map(value => value.trim().toLowerCase())
         .filter(Boolean);
 
-      if (expectedValues.some(expected => values.includes(expected))) {
+      // Any comma-delimited routing token beginning with "Printful" is eligible.
+      // Examples: Printful, PrintfulEU, PrintfulCanada, PWT,PrintfulCanada.
+      if (values.some(value => value.startsWith('printful'))) {
         candidates.push(order);
         pageCandidates.push(order);
       }

@@ -684,3 +684,11 @@ Successful discoveries log `[ARTWORK AUTO-MAP]`. The created order still uses
 catalog `variant_id` plus the verified file ID rather than `sync_variant_id`.
 If no exact file is discoverable, the order safely remains unresolved and will
 retry in catch-up.
+
+
+## v3.24 — Printful* routing + duplicate persistence + canceled replacement
+
+- ShipStation eligibility now accepts any comma-delimited Custom Field 1 token whose value begins with `Printful` (case-insensitive), including `Printful`, `PrintfulEU`, and `PrintfulCanada`.
+- Existing non-canceled Printful orders remain duplicate-protected and are persisted as submitted/accounted-for state so future catch-up runs skip them.
+- If the original Printful order is canceled/cancelled, it no longer blocks fulfillment. The bridge creates or reuses a deterministic `-R1` replacement external ID, preserving retry idempotency and the ShipStation mapping.
+- All v3.23 newest + backlog scanning, throttling, verified artwork mapping, and auto-confirm behavior remain in place.

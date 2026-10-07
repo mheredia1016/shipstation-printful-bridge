@@ -81,13 +81,6 @@ export async function runImport(config, options = {}) {
         config
       );
 
-      const expectedValues = Array.isArray(config.customFieldValues)
-        ? config.customFieldValues
-        : String(config.customFieldValue || 'Printful')
-            .split(',')
-            .map(value => value.trim().toLowerCase())
-            .filter(Boolean);
-
       orders = exactOrders.filter(order => {
         const correctStatus =
           String(order.orderStatus || '').toLowerCase() ===
@@ -102,7 +95,7 @@ export async function runImport(config, options = {}) {
 
         return (
           correctStatus &&
-          expectedValues.some(value => fieldValues.includes(value))
+          fieldValues.some(value => value.startsWith('printful'))
         );
       });
 
@@ -110,7 +103,7 @@ export async function runImport(config, options = {}) {
         throw new Error(
           `${requestedOrderNumber} was not eligible. It must be in ` +
           `${config.shipstationOrderStatus} and Custom Field 1 must contain ` +
-          `${config.customFieldValues.join(', ')}.`
+          `a comma-delimited token beginning with Printful.`
         );
       }
     } else if (config.catchupEnabled) {
@@ -272,15 +265,48 @@ export async function runImport(config, options = {}) {
         }
 
         const existingPrintful = await findByExternalId(payload.external_id, config);
+        let duplicateWasCanceled = false;
+        let replacementExternalId = null;
+        let printfulOrder = null;
 
         if (existingPrintful) {
-          console.log(
-            `[DUPLICATE GUARD] ${group.orderNumber} already exists in Printful ` +
-            `(Printful ID ${existingPrintful.id}); no new order will be created.`
-          );
-        }
+          const existingStatus = String(existingPrintful.status || '').toLowerCase();
 
-        let printfulOrder = existingPrintful || await createOrder(payload, config);
+          if (existingStatus === 'canceled' || existingStatus === 'cancelled') {
+            duplicateWasCanceled = true;
+
+            // Printful retains canceled external IDs, so create/reuse a deterministic
+            // replacement ID. This prevents a canceled order from blocking fulfillment
+            // while still making retries idempotent.
+            replacementExternalId = `${payload.external_id}-R1`;
+            const replacement = await findByExternalId(replacementExternalId, config);
+
+            if (replacement) {
+              console.log(
+                `[CANCELED REPLACEMENT GUARD] ${group.orderNumber} replacement already exists ` +
+                `(Printful ID ${replacement.id}, external ID ${replacementExternalId}); reusing it.`
+              );
+              printfulOrder = replacement;
+            } else {
+              console.log(
+                `[CANCELED REPLACEMENT] ${group.orderNumber} has canceled Printful order ` +
+                `${existingPrintful.id}; creating replacement ${replacementExternalId}.`
+              );
+              printfulOrder = await createOrder(
+                { ...payload, external_id: replacementExternalId },
+                config
+              );
+            }
+          } else {
+            console.log(
+              `[DUPLICATE GUARD] ${group.orderNumber} already exists in Printful ` +
+              `(Printful ID ${existingPrintful.id}); no new order will be created.`
+            );
+            printfulOrder = existingPrintful;
+          }
+        } else {
+          printfulOrder = await createOrder(payload, config);
+        }
 
         // Auto-confirm is intentionally strict. An item is production-ready
         // when it either uses a preconfigured sync_variant_id OR v3.19's
@@ -330,7 +356,8 @@ export async function runImport(config, options = {}) {
           orderNumber: group.orderNumber,
           shipstationOrderIds: group.shipstationOrderIds,
           printfulOrderId: printfulOrder.id,
-          printfulExternalId: payload.external_id,
+          printfulExternalId: replacementExternalId || payload.external_id,
+          replacedCanceledPrintfulOrderId: duplicateWasCanceled ? existingPrintful?.id : null,
           submittedAt: new Date().toISOString(),
           allItemsSynced,
           autoConfirmed,
@@ -346,7 +373,9 @@ export async function runImport(config, options = {}) {
           orderNumber: group.orderNumber,
           status: autoConfirmed
             ? 'auto_confirmed'
-            : (existingPrintful ? 'existing_printful_order' : 'submitted'),
+            : (duplicateWasCanceled
+                ? 'replacement_for_canceled_order'
+                : (existingPrintful ? 'existing_printful_order' : 'submitted')),
           printfulOrderId: printfulOrder.id,
           printfulStatus: printfulOrder.status || null,
           allItemsSynced,
@@ -568,13 +597,6 @@ export async function processPrintfulShipmentWebhook(event, config) {
       );
     }
 
-    const expectedTokens = Array.isArray(config.customFieldValues)
-      ? config.customFieldValues
-      : String(config.customFieldValue || 'Printful')
-          .split(',')
-          .map(value => value.trim().toLowerCase())
-          .filter(Boolean);
-
     const matchingPrintfulOrders = recoveredOrders.filter(candidate => {
       const values = String(
         candidate?.advancedOptions?.customField1 || ''
@@ -583,7 +605,7 @@ export async function processPrintfulShipmentWebhook(event, config) {
         .map(value => value.trim().toLowerCase())
         .filter(Boolean);
 
-      return expectedTokens.some(token => values.includes(token));
+      return values.some(value => value.startsWith('printful'));
     });
 
     const ordersToUse = matchingPrintfulOrders.length
