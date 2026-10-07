@@ -389,7 +389,7 @@ app.get('/api/last-tracking-run', (_req, res) => {
 });
 
 app.listen(config.port, () => {
-  console.log(`ShipStation → Printful bridge v3.24 listening on port ${config.port}`);
+  console.log(`ShipStation → Printful bridge v3.25 listening on port ${config.port}`);
   console.log(`Mode: ${config.printfulMode}`);
   console.log(`Visible Printful order number: ShipStation order number`);
   console.log(`Tracking → ShipStation customer notification: ${config.shipstationNotifyCustomer}`);
@@ -440,7 +440,25 @@ app.listen(config.port, () => {
 
   scheduleNextImport();
 
-  setInterval(() => {
-    runTrackingSync(config).catch(error => console.error('Scheduled tracking sync failed:', error));
-  }, config.trackingPollMinutes * 60 * 1000).unref();
+  const scheduleNextTracking = () => {
+    const timer = setTimeout(async () => {
+      try {
+        const result = await runTrackingSync(config);
+        console.log(
+          `Scheduled tracking sync: ${result.shipstationOrdersMarked} ShipStation order(s) marked shipped.`
+        );
+      } catch (error) {
+        if (String(error?.message || '').includes('already running')) {
+          console.log('[TRACKING] Previous sync still running; scheduled run skipped.');
+        } else {
+          console.error('Scheduled tracking sync failed:', error);
+        }
+      } finally {
+        scheduleNextTracking();
+      }
+    }, config.trackingPollMinutes * 60 * 1000);
+    timer.unref();
+  };
+
+  scheduleNextTracking();
 });

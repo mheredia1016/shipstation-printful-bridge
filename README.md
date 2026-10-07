@@ -692,3 +692,19 @@ retry in catch-up.
 - Existing non-canceled Printful orders remain duplicate-protected and are persisted as submitted/accounted-for state so future catch-up runs skip them.
 - If the original Printful order is canceled/cancelled, it no longer blocks fulfillment. The bridge creates or reuses a deterministic `-R1` replacement external ID, preserving retry idempotency and the ShipStation mapping.
 - All v3.23 newest + backlog scanning, throttling, verified artwork mapping, and auto-confirm behavior remain in place.
+
+
+## v3.25 — 30-day reconciliation
+
+The bridge now performs a progressive date-bounded audit of eligible ShipStation orders from the last 30 days. It scans a small number of pages per normal import cycle, remembers its page cursor in the persistent state file, and feeds unresolved orders through the same duplicate/artwork/canceled-order protections as normal imports.
+
+Recommended Railway variables:
+
+```env
+RECONCILE_30_DAY_ENABLED=true
+RECONCILE_30_DAY_DAYS=30
+RECONCILE_30_DAY_BATCH_SIZE=25
+RECONCILE_30_DAY_PAGES_PER_RUN=2
+```
+
+Tracking scheduling is also recursive in v3.25, so a slow tracking run cannot overlap the next scheduled tracking run.

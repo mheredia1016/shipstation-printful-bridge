@@ -170,6 +170,12 @@ export async function listCandidateOrders(config, options = {}) {
       sortDir: config.shipstationScanNewestFirst ? 'DESC' : 'ASC'
     });
 
+    // ShipStation v1 supports order-date bounds on List Orders. Reconciliation
+    // uses these so the audit is independent of how large the total Awaiting
+    // Shipment backlog becomes.
+    if (options.orderDateStart) params.set('orderDateStart', options.orderDateStart);
+    if (options.orderDateEnd) params.set('orderDateEnd', options.orderDateEnd);
+
     const result = await request(`/orders?${params}`, config);
     const orders = Array.isArray(result.orders) ? result.orders : [];
 

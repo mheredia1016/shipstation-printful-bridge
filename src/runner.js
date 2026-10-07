@@ -200,6 +200,77 @@ export async function runImport(config, options = {}) {
           `${state.meta.shipstationBacklogPage}.`
         );
       }
+
+      // Pass 3: independent 30-day reconciliation. This deliberately uses an
+      // order-date window instead of the general Awaiting Shipment page cursor.
+      // It walks the entire 30-day result set over successive runs and feeds
+      // genuinely unresolved orders into the normal safe import path.
+      if (config.reconcile30DayEnabled) {
+        const reconcileBatchSize = Math.max(1, Number(config.reconcile30DayBatchSize || 25));
+        const days = Math.max(1, Number(config.reconcile30DayDays || 30));
+        const end = new Date();
+        const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000);
+        const orderDateStart = start.toISOString();
+        const orderDateEnd = end.toISOString();
+        let reconcilePage = Math.max(1, Number(state.meta?.reconcile30DayPage || 1));
+        let lastScannedPage = reconcilePage;
+        let totalPages = reconcilePage;
+
+        const reconcileOrders = await listCandidateOrders(config, {
+          startPage: reconcilePage,
+          pagesToScan: Math.max(1, Number(config.reconcile30DayPagesPerRun || 2)),
+          scanLabel: '30-DAY',
+          orderDateStart,
+          orderDateEnd,
+          onPage: ({ page, result }) => {
+            lastScannedPage = page;
+            totalPages = Math.max(1, Number(result?.pages || 1));
+          }
+        });
+
+        const reconcileGroups = groupOrders(reconcileOrders);
+        const unresolved30Day = reconcileGroups.filter(group => {
+          const existing = state.orders?.[group.orderNumber];
+          return !existing || !['submitted', 'shipped'].includes(String(existing.status || ''));
+        });
+        const selected30Day = unresolved30Day.slice(0, reconcileBatchSize);
+        const selected30DayNumbers = new Set(selected30Day.map(group => group.orderNumber));
+
+        // Avoid processing the same order twice if NEWEST/BACKLOG already
+        // selected it during this same run.
+        const alreadySelected = new Set(
+          orders.map(order => String(order.orderNumber || order.orderId))
+        );
+        orders.push(...reconcileOrders.filter(order => {
+          const number = String(order.orderNumber || order.orderId);
+          return selected30DayNumbers.has(number) && !alreadySelected.has(number);
+        }));
+
+        // Stay on the current window while it contains more unresolved orders
+        // than we can process. Otherwise advance. At the end, restart at page 1
+        // so every 30-day order is continuously audited.
+        if (unresolved30Day.length <= reconcileBatchSize) {
+          const nextPage = lastScannedPage + 1;
+          state.meta.reconcile30DayPage = nextPage > totalPages ? 1 : nextPage;
+        } else {
+          state.meta.reconcile30DayPage = reconcilePage;
+        }
+        state.meta.reconcile30DayUpdatedAt = new Date().toISOString();
+        state.meta.reconcile30DayStart = orderDateStart;
+        state.meta.reconcile30DayEnd = orderDateEnd;
+        await saveState(config.stateFile, state);
+
+        output.reconcile30DayPage = reconcilePage;
+        output.reconcile30DayLastScannedPage = lastScannedPage;
+        output.reconcile30DayUnresolvedVisible = unresolved30Day.length;
+        output.reconcile30DayBatchSelected = selected30Day.length;
+
+        console.log(
+          `[30-DAY RECONCILE] ${orderDateStart.slice(0, 10)} through ${orderDateEnd.slice(0, 10)} | ` +
+          `pages ${reconcilePage}-${lastScannedPage}: ${unresolved30Day.length} unresolved eligible order(s); ` +
+          `selected ${selected30Day.length}. Next cursor: ${state.meta.reconcile30DayPage}.`
+        );
+      }
     } else {
       orders = await listCandidateOrders(config);
     }
@@ -212,6 +283,9 @@ export async function runImport(config, options = {}) {
       const newestBatchSize = Math.max(1, Number(config.catchupBatchSize || 25));
       const backlogBatchSize = config.backlogEnabled
         ? Math.max(1, Number(config.backlogBatchSize || 25))
+        : 0;
+      const reconcileBatchSize = config.reconcile30DayEnabled
+        ? Math.max(1, Number(config.reconcile30DayBatchSize || 25))
         : 0;
       const unresolved = groups.filter(group => {
         const existing = state.orders?.[group.orderNumber];
@@ -226,7 +300,11 @@ export async function runImport(config, options = {}) {
       const backlog = unresolved
         .filter(group => !newestNumbers.has(group.orderNumber))
         .slice(0, backlogBatchSize);
-      groups = [...newest, ...backlog];
+      const backlogNumbers = new Set(backlog.map(group => group.orderNumber));
+      const reconcile = unresolved
+        .filter(group => !newestNumbers.has(group.orderNumber) && !backlogNumbers.has(group.orderNumber))
+        .slice(0, reconcileBatchSize);
+      groups = [...newest, ...backlog, ...reconcile];
 
       output.catchupUnresolvedVisible = unresolved.length;
       output.catchupBatchSelected = groups.length;
@@ -234,7 +312,7 @@ export async function runImport(config, options = {}) {
       console.log(
         `[CATCH-UP] ${unresolved.length} unresolved eligible order(s) visible; ` +
         `processing ${groups.length} this run ` +
-        `(${newest.length} newest + ${backlog.length} backlog).`
+        `(${newest.length} newest + ${backlog.length} backlog + ${reconcile.length} 30-day reconcile).`
       );
     }
 
