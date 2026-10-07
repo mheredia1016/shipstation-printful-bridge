@@ -672,3 +672,15 @@ zero-submission batch diagnosable directly from Railway logs.
 Scheduled imports use a self-scheduling timeout rather than `setInterval`, so a
 slow import cannot cause another scheduled import to start before its own
 interval has elapsed after completion.
+
+## v3.22 — automatic verified artwork mapping
+
+If a matched synced product has no existing artwork-map entry, the bridge now
+inspects that exact Printful product and persists an attached file only when its
+filename exactly equals the old/current SKU plus `.png`. Generated names such
+as `aew6180-1.png` do not match `aew6180` and are rejected.
+
+Successful discoveries log `[ARTWORK AUTO-MAP]`. The created order still uses
+catalog `variant_id` plus the verified file ID rather than `sync_variant_id`.
+If no exact file is discoverable, the order safely remains unresolved and will
+retry in catch-up.

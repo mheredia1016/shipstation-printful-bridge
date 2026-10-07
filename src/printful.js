@@ -744,6 +744,39 @@ async function scanAttachedStoreArtwork(config, neededSkus = []) {
   return map;
 }
 
+
+async function discoverArtworkFromMatchedProduct(automatic, wantedSkus, config) {
+  const wanted = new Set(wantedSkus.map(normalizeArtworkSku).filter(Boolean));
+  if (!wanted.size || !automatic?.productId) return null;
+
+  const map = await loadArtworkMap(config.artworkMapFile);
+  for (const sku of wanted) {
+    const existing = getArtworkFileId(map, sku);
+    if (existing) return { sku, fileId: existing, source: 'artwork-map' };
+  }
+
+  const details = await getCachedStoreProduct(automatic.productId, config);
+  const variants = Array.isArray(details?.sync_variants) ? details.sync_variants : [];
+
+  for (const variant of variants) {
+    for (const file of variant.files || []) {
+      const filenameSku = normalizeArtworkSku(file.filename);
+      if (!wanted.has(filenameSku)) continue;
+      if (!file.id || (file.status && file.status !== 'ok')) continue;
+
+      setArtworkFileId(map, filenameSku, file.id, 'matched-printful-store-product');
+      await saveArtworkMap(config.artworkMapFile, map);
+
+      console.log(
+        `[ARTWORK AUTO-MAP] ${filenameSku}.png -> Printful file ${file.id} ` +
+        `from matched synced product ${automatic.productName || automatic.productId}.`
+      );
+      return { sku: filenameSku, fileId: Number(file.id), source: 'matched-printful-store-product' };
+    }
+  }
+  return null;
+}
+
 async function resolveArtworkFile(item, config) {
   const oldSku = getOldSku(item);
   const currentSku = String(item.sku || '').trim();
@@ -994,16 +1027,25 @@ export async function buildPrintfulOrder(group, config) {
           const artworkMap = await loadArtworkMap(config.artworkMapFile);
           const oldSku = getOldSku(item);
           const currentSku = String(item.sku || '').trim();
-          const mappedArtworkFileId =
+          let mappedArtworkFileId =
             getArtworkFileId(artworkMap, oldSku) ||
             getArtworkFileId(artworkMap, currentSku);
 
           if (!mappedArtworkFileId) {
+            const discovered = await discoverArtworkFromMatchedProduct(
+              automatic,
+              [oldSku, currentSku],
+              config
+            );
+            mappedArtworkFileId = discovered?.fileId || null;
+          }
+
+          if (!mappedArtworkFileId) {
             throw new Error(
               `SYNCED_ARTWORK_REQUIRED: ${oldSku || currentSku || '(no SKU)'} ` +
-              `matched ${automatic.productName}, but no verified Printful File ` +
-              `Library artwork ID exists in the artwork map. Refusing to use ` +
-              `the synced variant's inherited files.`
+              `matched ${automatic.productName}, but no exact production artwork filename ` +
+              `was found on that synced Printful product and no verified artwork-map entry exists. ` +
+              `Refusing inherited/mockup files.`
             );
           }
 
