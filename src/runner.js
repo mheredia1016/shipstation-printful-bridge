@@ -13,7 +13,7 @@ import {
   getPrintfulShipments,
   updateDraftOrder
 } from './printful.js';
-import { loadState, saveState } from './state.js';
+import { loadState, saveState, loadReconcile30DayCursor, saveReconcile30DayCursor } from './state.js';
 
 let importRunning = false;
 let trackingRunning = false;
@@ -88,7 +88,7 @@ export async function runImport(config, options = {}) {
     let orders;
     const requestedOrderNumber = String(options.orderNumber || '').trim();
 
-    // v3.29 discovery-source tracking for historical-first batching.
+    // v3.30 discovery-source tracking for historical-first batching.
     const priority30DayNumbers = new Set();
     const priorityNewestNumbers = new Set();
     const priorityBacklogNumbers = new Set();
@@ -232,7 +232,11 @@ export async function runImport(config, options = {}) {
         const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000);
         const orderDateStart = start.toISOString();
         const orderDateEnd = end.toISOString();
-        let reconcilePage = Math.max(1, Number(state.meta?.reconcile30DayPage || 1));
+        let reconcilePage = await loadReconcile30DayCursor(
+          config.stateFile,
+          state.meta?.reconcile30DayPage || 1
+        );
+        console.log(`[30-DAY CURSOR] Loaded persistent cursor page ${reconcilePage}.`);
         let lastScannedPage = reconcilePage;
         let totalPages = reconcilePage;
 
@@ -280,6 +284,16 @@ export async function runImport(config, options = {}) {
         state.meta.reconcile30DayUpdatedAt = new Date().toISOString();
         state.meta.reconcile30DayStart = orderDateStart;
         state.meta.reconcile30DayEnd = orderDateEnd;
+
+        // Persist this cursor independently before the shared state save.
+        // This prevents a concurrent tracking job with stale state from
+        // rolling reconciliation back to page 1.
+        await saveReconcile30DayCursor(
+          config.stateFile,
+          state.meta.reconcile30DayPage,
+          { lastScannedPage, orderDateStart, orderDateEnd }
+        );
+        console.log(`[30-DAY CURSOR] Persisted next page ${state.meta.reconcile30DayPage}.`);
         await saveState(config.stateFile, state);
 
         output.reconcile30DayPage = reconcilePage;
@@ -315,7 +329,7 @@ export async function runImport(config, options = {}) {
           !['submitted', 'shipped'].includes(String(existing.status || ''));
       });
 
-      // v3.29: historical recovery gets first claim on its own batch. An order
+      // v3.30: historical recovery gets first claim on its own batch. An order
       // discovered by both NEWEST and 30-DAY is counted/processed as 30-DAY,
       // so today's scan can no longer steal historical recovery capacity.
       const reconcile = unresolved

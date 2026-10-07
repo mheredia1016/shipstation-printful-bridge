@@ -741,3 +741,8 @@ Expected log prefix:
 
 ## v3.29 historical-first recovery
 The 30-day oldest-first reconciliation batch now has first priority. Orders selected by both the newest and 30-day scans are processed/count as 30-day recovery, preserving up to RECONCILE_30_DAY_BATCH_SIZE historical slots before newest/backlog work.
+
+
+## v3.30 persistent 30-day cursor sidecar
+
+The 30-day oldest-first cursor is now stored independently in `reconcile-30day-cursor.json` beside the main state file. This prevents concurrent tracking/state saves from overwriting a newer reconciliation cursor with stale metadata. Logs now show `[30-DAY CURSOR] Loaded persistent cursor page N` and `[30-DAY CURSOR] Persisted next page N`. No Railway variable changes are required.

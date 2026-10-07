@@ -158,3 +158,39 @@ export async function saveState(file, state) {
   writeQueue = task;
   return task;
 }
+
+
+// v3.30: keep the 30-day reconciliation cursor in its own sidecar file.
+// Tracking and import jobs both persist bridge-state.json; a long-running job
+// can otherwise save an older in-memory meta object after reconciliation and
+// roll the cursor backward. The sidecar is only written by reconciliation.
+function reconcileCursorFile(stateFile) {
+  return path.join(path.dirname(stateFile), 'reconcile-30day-cursor.json');
+}
+
+export async function loadReconcile30DayCursor(stateFile, fallbackPage = 1) {
+  const file = reconcileCursorFile(stateFile);
+  try {
+    const raw = await fs.readFile(file, 'utf8');
+    const parsed = JSON.parse(raw);
+    const page = Number(parsed?.page);
+    return Number.isFinite(page) && page >= 1 ? Math.floor(page) : Math.max(1, Number(fallbackPage || 1));
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      console.error(`[30-DAY CURSOR] Could not read ${file}: ${error.message}`);
+    }
+    return Math.max(1, Number(fallbackPage || 1));
+  }
+}
+
+export async function saveReconcile30DayCursor(stateFile, page, extra = {}) {
+  const file = reconcileCursorFile(stateFile);
+  await ensureParent(file);
+  const safePage = Math.max(1, Math.floor(Number(page || 1)));
+  const body = JSON.stringify({ page: safePage, updatedAt: new Date().toISOString(), ...extra }, null, 2) + '\n';
+  const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
+  await fs.writeFile(tmp, body, 'utf8');
+  JSON.parse(await fs.readFile(tmp, 'utf8'));
+  await fs.rename(tmp, file);
+  return safePage;
+}
