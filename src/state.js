@@ -194,3 +194,60 @@ export async function saveReconcile30DayCursor(stateFile, page, extra = {}) {
   await fs.rename(tmp, file);
   return safePage;
 }
+
+
+// v3.31: independent ledger of orders that have already been successfully
+// accounted for by the import path. This sidecar cannot be rolled back by a
+// concurrent tracking save of bridge-state.json.
+function reconcileResolvedFile(stateFile) {
+  return path.join(path.dirname(stateFile), 'reconcile-30day-resolved.json');
+}
+
+export async function loadReconcile30DayResolved(stateFile) {
+  const file = reconcileResolvedFile(stateFile);
+  try {
+    const raw = await fs.readFile(file, 'utf8');
+    const parsed = JSON.parse(raw);
+    const orders = parsed?.orders && typeof parsed.orders === 'object' && !Array.isArray(parsed.orders)
+      ? parsed.orders
+      : {};
+    return orders;
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      console.error(`[30-DAY RESOLVED] Could not read ${file}: ${error.message}`);
+    }
+    return {};
+  }
+}
+
+export async function markReconcile30DayResolved(stateFile, orderNumber, details = {}) {
+  const file = reconcileResolvedFile(stateFile);
+  await ensureParent(file);
+
+  // Read-modify-write the dedicated ledger immediately before saving so the
+  // current process never relies on a stale copy from bridge-state.json.
+  let orders = {};
+  try {
+    const raw = await fs.readFile(file, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (parsed?.orders && typeof parsed.orders === 'object' && !Array.isArray(parsed.orders)) {
+      orders = parsed.orders;
+    }
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+
+  const key = String(orderNumber);
+  orders[key] = {
+    ...(orders[key] || {}),
+    resolvedAt: new Date().toISOString(),
+    ...details
+  };
+
+  const body = JSON.stringify({ updatedAt: new Date().toISOString(), orders }, null, 2) + '\n';
+  const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
+  await fs.writeFile(tmp, body, 'utf8');
+  JSON.parse(await fs.readFile(tmp, 'utf8'));
+  await fs.rename(tmp, file);
+  return orders[key];
+}

@@ -13,7 +13,14 @@ import {
   getPrintfulShipments,
   updateDraftOrder
 } from './printful.js';
-import { loadState, saveState, loadReconcile30DayCursor, saveReconcile30DayCursor } from './state.js';
+import {
+  loadState,
+  saveState,
+  loadReconcile30DayCursor,
+  saveReconcile30DayCursor,
+  loadReconcile30DayResolved,
+  markReconcile30DayResolved
+} from './state.js';
 
 let importRunning = false;
 let trackingRunning = false;
@@ -254,10 +261,20 @@ export async function runImport(config, options = {}) {
         });
 
         const reconcileGroups = groupOrders(reconcileOrders);
+        const resolved30Day = await loadReconcile30DayResolved(config.stateFile);
         const unresolved30Day = reconcileGroups.filter(group => {
           const existing = state.orders?.[group.orderNumber];
-          return !existing || !['submitted', 'shipped'].includes(String(existing.status || ''));
+          const stateResolved = existing && ['submitted', 'shipped'].includes(String(existing.status || ''));
+          const ledgerResolved = Boolean(resolved30Day?.[group.orderNumber]);
+          return !stateResolved && !ledgerResolved;
         });
+        const ledgerResolvedVisible = reconcileGroups.length - unresolved30Day.length;
+        if (ledgerResolvedVisible > 0) {
+          console.log(
+            `[30-DAY RESOLVED] Excluded ${ledgerResolvedVisible} already-accounted order(s) ` +
+            `from pages ${reconcilePage}-${lastScannedPage}.`
+          );
+        }
         const selected30Day = unresolved30Day.slice(0, reconcileBatchSize);
         const selected30DayNumbers = new Set(selected30Day.map(group => group.orderNumber));
         selected30DayNumbers.forEach(number => priority30DayNumbers.add(number));
@@ -329,7 +346,7 @@ export async function runImport(config, options = {}) {
           !['submitted', 'shipped'].includes(String(existing.status || ''));
       });
 
-      // v3.30: historical recovery gets first claim on its own batch. An order
+      // v3.31: historical recovery gets first claim on its own batch. An order
       // discovered by both NEWEST and 30-DAY is counted/processed as 30-DAY,
       // so today's scan can no longer steal historical recovery capacity.
       const reconcile = unresolved
@@ -488,6 +505,17 @@ export async function runImport(config, options = {}) {
         };
 
         await saveState(config.stateFile, state);
+
+        // v3.31: independently remember every successfully accounted order.
+        // This includes newly-created Printful orders and DUPLICATE GUARD
+        // matches, but never failed imports. The 30-day scanner therefore
+        // drains forward even if a concurrent tracking job later writes an
+        // older bridge-state.json snapshot.
+        await markReconcile30DayResolved(config.stateFile, group.orderNumber, {
+          printfulOrderId: printfulOrder.id,
+          printfulExternalId: replacementExternalId || payload.external_id,
+          source: existingPrintful ? 'duplicate_guard_or_existing' : 'created'
+        });
 
         output.submitted += 1;
         output.orders.push({

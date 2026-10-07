@@ -746,3 +746,8 @@ The 30-day oldest-first reconciliation batch now has first priority. Orders sele
 ## v3.30 persistent 30-day cursor sidecar
 
 The 30-day oldest-first cursor is now stored independently in `reconcile-30day-cursor.json` beside the main state file. This prevents concurrent tracking/state saves from overwriting a newer reconciliation cursor with stale metadata. Logs now show `[30-DAY CURSOR] Loaded persistent cursor page N` and `[30-DAY CURSOR] Persisted next page N`. No Railway variable changes are required.
+
+
+## v3.31 — persistent 30-day resolved ledger
+
+The 30-day reconciliation now keeps a second dedicated sidecar, `reconcile-30day-resolved.json`, beside the main state file. Every order that is successfully created in Printful or safely matched by Duplicate Guard is recorded there. Failed imports are not recorded. The 30-day selector checks both `bridge-state.json` and this independent ledger, preventing already-accounted Awaiting Shipment orders from consuming the same historical batch on every run if a concurrent tracking save rolls back the shared state. No Railway variable changes are required.
