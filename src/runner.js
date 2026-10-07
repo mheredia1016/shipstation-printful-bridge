@@ -88,6 +88,11 @@ export async function runImport(config, options = {}) {
     let orders;
     const requestedOrderNumber = String(options.orderNumber || '').trim();
 
+    // v3.29 discovery-source tracking for historical-first batching.
+    const priority30DayNumbers = new Set();
+    const priorityNewestNumbers = new Set();
+    const priorityBacklogNumbers = new Set();
+
     if (requestedOrderNumber) {
       const exactOrders = await findOrdersByExactOrderNumber(
         requestedOrderNumber,
@@ -144,6 +149,7 @@ export async function runImport(config, options = {}) {
       const newestSelectedNumbers = new Set(
         newestGroups.map(group => group.orderNumber)
       );
+      newestSelectedNumbers.forEach(number => priorityNewestNumbers.add(number));
       orders = newestOrders.filter(order =>
         newestSelectedNumbers.has(String(order.orderNumber || order.orderId))
       );
@@ -183,6 +189,7 @@ export async function runImport(config, options = {}) {
         });
         const selectedBacklog = unresolvedBacklog.slice(0, backlogBatchSize);
         const selectedNumbers = new Set(selectedBacklog.map(group => group.orderNumber));
+        selectedNumbers.forEach(number => priorityBacklogNumbers.add(number));
 
         // Only add records belonging to the selected backlog groups.
         orders.push(...backlogOrders.filter(order =>
@@ -249,6 +256,7 @@ export async function runImport(config, options = {}) {
         });
         const selected30Day = unresolved30Day.slice(0, reconcileBatchSize);
         const selected30DayNumbers = new Set(selected30Day.map(group => group.orderNumber));
+        selected30DayNumbers.forEach(number => priority30DayNumbers.add(number));
 
         // Avoid processing the same order twice if NEWEST/BACKLOG already
         // selected it during this same run.
@@ -307,18 +315,25 @@ export async function runImport(config, options = {}) {
           !['submitted', 'shipped'].includes(String(existing.status || ''));
       });
 
-      // The NEWEST scan is inserted first and is capped at catchupBatchSize.
-      // BACKLOG records were already capped before being appended above.
-      const newest = unresolved.slice(0, newestBatchSize);
-      const newestNumbers = new Set(newest.map(group => group.orderNumber));
-      const backlog = unresolved
-        .filter(group => !newestNumbers.has(group.orderNumber))
-        .slice(0, backlogBatchSize);
-      const backlogNumbers = new Set(backlog.map(group => group.orderNumber));
+      // v3.29: historical recovery gets first claim on its own batch. An order
+      // discovered by both NEWEST and 30-DAY is counted/processed as 30-DAY,
+      // so today's scan can no longer steal historical recovery capacity.
       const reconcile = unresolved
-        .filter(group => !newestNumbers.has(group.orderNumber) && !backlogNumbers.has(group.orderNumber))
+        .filter(group => priority30DayNumbers.has(group.orderNumber))
         .slice(0, reconcileBatchSize);
-      groups = [...newest, ...backlog, ...reconcile];
+      const reconcileNumbers = new Set(reconcile.map(group => group.orderNumber));
+
+      const newest = unresolved
+        .filter(group => priorityNewestNumbers.has(group.orderNumber) && !reconcileNumbers.has(group.orderNumber))
+        .slice(0, newestBatchSize);
+      const newestNumbers = new Set(newest.map(group => group.orderNumber));
+
+      const backlog = unresolved
+        .filter(group => priorityBacklogNumbers.has(group.orderNumber) &&
+          !reconcileNumbers.has(group.orderNumber) && !newestNumbers.has(group.orderNumber))
+        .slice(0, backlogBatchSize);
+
+      groups = [...reconcile, ...newest, ...backlog];
 
       output.catchupUnresolvedVisible = unresolved.length;
       output.catchupBatchSelected = groups.length;
@@ -326,7 +341,7 @@ export async function runImport(config, options = {}) {
       console.log(
         `[CATCH-UP] ${unresolved.length} unresolved eligible order(s) visible; ` +
         `processing ${groups.length} this run ` +
-        `(${newest.length} newest + ${backlog.length} backlog + ${reconcile.length} 30-day reconcile).`
+        `(${reconcile.length} 30-day reconcile FIRST + ${newest.length} newest + ${backlog.length} backlog).`
       );
     }
 

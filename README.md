@@ -737,3 +737,7 @@ Expected log prefix:
 - When verified, orders use `sync_variant_id`, preserving the existing Printful product's saved placement, scale and print-area configuration.
 - If the exact matched sync variant cannot be verified, the bridge retains the v3.27 catalog-variant + verified artwork fallback.
 - No Railway environment variable changes are required.
+
+
+## v3.29 historical-first recovery
+The 30-day oldest-first reconciliation batch now has first priority. Orders selected by both the newest and 30-day scans are processed/count as 30-day recovery, preserving up to RECONCILE_30_DAY_BATCH_SIZE historical slots before newest/backlog work.
