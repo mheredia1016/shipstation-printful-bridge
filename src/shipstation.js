@@ -8,16 +8,53 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// A single queue for all ShipStation calls (including shipment updates).
+// The shared cooldown is updated from every response, so a 429 pauses all callers.
 let shipstationRequestQueue = Promise.resolve();
 let lastShipstationRequestAt = 0;
+let shipstationCooldownUntil = 0;
+
+function rateLimitResetMs(value) {
+  if (!value) return 0;
+  const n = Number(value);
+  if (Number.isFinite(n)) {
+    // Some services report seconds until reset; others use epoch seconds/ms.
+    if (n > 1e12) return n;
+    if (n > 1e9) return n * 1000;
+    return Date.now() + Math.max(0, n) * 1000;
+  }
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function retryDelayMs(response, attempt) {
+  const retryAfter = response.headers.get('retry-after');
+  if (retryAfter) {
+    const n = Number(retryAfter);
+    if (Number.isFinite(n)) return Math.max(1000, n * 1000);
+    const parsed = Date.parse(retryAfter);
+    if (!Number.isNaN(parsed)) return Math.max(1000, parsed - Date.now());
+  }
+  const resetAt = rateLimitResetMs(response.headers.get('x-rate-limit-reset'));
+  if (resetAt > Date.now()) return Math.max(1000, resetAt - Date.now() + 250);
+  return Math.min(120000, 5000 * (2 ** attempt));
+}
 
 async function withShipstationThrottle(config, fn) {
   const task = shipstationRequestQueue.catch(() => {}).then(async () => {
     const delayMs = Math.max(0, Number(config.shipstationGlobalDelayMs || 1500));
-    const wait = delayMs - (Date.now() - lastShipstationRequestAt);
-    if (wait > 0) await sleep(wait);
+    const earliest = Math.max(lastShipstationRequestAt + delayMs, shipstationCooldownUntil);
+    if (earliest > Date.now()) await sleep(earliest - Date.now());
     try {
-      return await fn();
+      const response = await fn();
+      const remaining = Number(response.headers.get('x-rate-limit-remaining'));
+      const resetAt = rateLimitResetMs(response.headers.get('x-rate-limit-reset'));
+      if (response.status === 429) {
+        shipstationCooldownUntil = Math.max(shipstationCooldownUntil, Date.now() + retryDelayMs(response, 0));
+      } else if (response.headers.has('x-rate-limit-remaining') && Number.isFinite(remaining) && remaining <= 1 && resetAt > Date.now()) {
+        shipstationCooldownUntil = Math.max(shipstationCooldownUntil, resetAt + 250);
+      }
+      return response;
     } finally {
       lastShipstationRequestAt = Date.now();
     }
@@ -26,27 +63,8 @@ async function withShipstationThrottle(config, fn) {
   return task;
 }
 
-function retryDelayMs(response, attempt) {
-  const retryAfter = response.headers.get('retry-after');
-
-  if (retryAfter) {
-    const seconds = Number(retryAfter);
-    if (Number.isFinite(seconds)) {
-      return Math.max(1000, seconds * 1000);
-    }
-
-    const date = Date.parse(retryAfter);
-    if (!Number.isNaN(date)) {
-      return Math.max(1000, date - Date.now());
-    }
-  }
-
-  return Math.min(120000, 5000 * (2 ** attempt));
-}
-
 async function request(path, config, options = {}) {
   const maxRetries = Math.max(1, Number(config.apiMaxRetries || 6));
-
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
     const response = await withShipstationThrottle(config, () =>
       fetch(`${BASE_URL}${path}`, {
@@ -54,47 +72,28 @@ async function request(path, config, options = {}) {
         headers: {
           Accept: 'application/json',
           'Content-Type': 'application/json',
-          Authorization: authHeader(
-            config.shipstationApiKey,
-            config.shipstationApiSecret
-          ),
+          Authorization: authHeader(config.shipstationApiKey, config.shipstationApiSecret),
+          ...(config.shipstationPartnerKey ? { 'x-partner': config.shipstationPartnerKey } : {}),
           ...(options.headers || {})
         }
       })
     );
-
-    const text = await response.text();
+    const responseText = await response.text();
     let body;
-    try {
-      body = text ? JSON.parse(text) : {};
-    } catch {
-      body = { raw: text };
-    }
-
+    try { body = responseText ? JSON.parse(responseText) : {}; }
+    catch { body = { raw: responseText }; }
     if (response.status === 429 && attempt < maxRetries) {
       const delay = retryDelayMs(response, attempt);
-      console.warn(
-        `ShipStation 429 on ${path}. Retrying in ` +
-        `${Math.round(delay / 1000)}s ` +
-        `(attempt ${attempt + 1}/${maxRetries}).`
-      );
-      await sleep(delay);
+      shipstationCooldownUntil = Math.max(shipstationCooldownUntil, Date.now() + delay);
+      console.warn(`ShipStation 429 on ${path}. Shared cooldown ${Math.round(delay / 1000)}s (attempt ${attempt + 1}/${maxRetries}).`);
       continue;
     }
-
     if (!response.ok) {
-      throw new Error(
-        `ShipStation ${response.status}: ` +
-        `${JSON.stringify(body).slice(0, 1400)}`
-      );
+      throw new Error(`ShipStation ${response.status}: ${JSON.stringify(body).slice(0, 1400)}`);
     }
-
     return body;
   }
-
-  throw new Error(
-    `ShipStation request failed after ${maxRetries} retries: ${path}`
-  );
+  throw new Error(`ShipStation request failed after ${maxRetries} retries: ${path}`);
 }
 
 let storesCache = {

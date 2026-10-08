@@ -1,6 +1,6 @@
 {
   "name": "shipstation-printful-bridge",
-  "version": "3.32.0",
+  "version": "3.33.0",
   "description": "ShipStation to Printful bridge using verified SKU artwork files with synced-product catalog variants.",
   "type": "module",
   "main": "src/index.js",

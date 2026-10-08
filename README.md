@@ -759,3 +759,8 @@ A fourth independent scan checks one UTC calendar-day slice at a time, oldest da
 Optional environment settings (defaults shown): `DAILY_AUDIT_ENABLED=true`, `DAILY_AUDIT_BATCH_SIZE=10`, `DAILY_AUDIT_PAGES_PER_RUN=2`. The scan is additional ShipStation API traffic; use conservative limits while 429s occur. Logs show `[DAILY AUDIT]` and the import response includes `dailyAudit`. Calendar-day bounds are UTC.
 
 Note: this audit only sees orders still in the configured ShipStation status (`awaiting_shipment`), and ShipStation pagination can change during a scan. It is a recurring safety net, not a mathematically complete snapshot of all historical orders.
+
+
+## v3.33 ShipStation partner header and shared cooldown
+
+Set `SHIPSTATION_PARTNER_KEY` to the existing ShipStation partner key used by your other integrations. It is sent as `x-partner` on every ShipStation API request, including tracking updates. All ShipStation requests share a process-wide queue. On HTTP 429, `Retry-After` or `X-Rate-Limit-Reset` (when available) establishes a shared cooldown; exhausted `X-Rate-Limit-Remaining` also triggers a wait when reset information is present. This queue is FIFO, not priority scheduling. Other Railway services/processes do not share this queue.

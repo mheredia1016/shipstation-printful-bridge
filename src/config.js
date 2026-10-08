@@ -29,6 +29,7 @@ export function getConfig({ validateSecrets = true } = {}) {
 
     shipstationApiKey: validateSecrets ? required('SHIPSTATION_API_KEY') : process.env.SHIPSTATION_API_KEY,
     shipstationApiSecret: validateSecrets ? required('SHIPSTATION_API_SECRET') : process.env.SHIPSTATION_API_SECRET,
+    shipstationPartnerKey: (process.env.SHIPSTATION_PARTNER_KEY || '').trim(),
     shipstationStoreId: required('SHIPSTATION_STORE_ID'),
     shipstationOrderStatus: process.env.SHIPSTATION_ORDER_STATUS || 'awaiting_shipment',
     customFieldValue: process.env.SHIPSTATION_CUSTOM_FIELD_VALUE || 'Printful',
