@@ -751,3 +751,11 @@ The 30-day oldest-first cursor is now stored independently in `reconcile-30day-c
 ## v3.31 — persistent 30-day resolved ledger
 
 The 30-day reconciliation now keeps a second dedicated sidecar, `reconcile-30day-resolved.json`, beside the main state file. Every order that is successfully created in Printful or safely matched by Duplicate Guard is recorded there. Failed imports are not recorded. The 30-day selector checks both `bridge-state.json` and this independent ledger, preventing already-accounted Awaiting Shipment orders from consuming the same historical batch on every run if a concurrent tracking save rolls back the shared state. No Railway variable changes are required.
+
+## v3.32 independent 30-day daily audit
+
+A fourth independent scan checks one UTC calendar-day slice at a time, oldest day first, with a persistent day/page cursor in `${STATE_FILE}.daily-audit.json`. It is independent of the rolling 30-day cursor, newest, and backlog scans. It selects up to 10 unaccounted orders per run for the existing safe import/duplicate-guard flow. Failed orders remain unaccounted and will be flagged again when the audit cycles.
+
+Optional environment settings (defaults shown): `DAILY_AUDIT_ENABLED=true`, `DAILY_AUDIT_BATCH_SIZE=10`, `DAILY_AUDIT_PAGES_PER_RUN=2`. The scan is additional ShipStation API traffic; use conservative limits while 429s occur. Logs show `[DAILY AUDIT]` and the import response includes `dailyAudit`. Calendar-day bounds are UTC.
+
+Note: this audit only sees orders still in the configured ShipStation status (`awaiting_shipment`), and ShipStation pagination can change during a scan. It is a recurring safety net, not a mathematically complete snapshot of all historical orders.

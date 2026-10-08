@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises';
 import {
   listCandidateOrders,
   markOrderShipped,
@@ -65,6 +66,18 @@ function groupOrders(orders) {
   return [...groups.values()];
 }
 
+// Independent calendar-day audit, separate from the rolling 30-day page cursor.
+async function readAuditCursor(file) {
+  try { return JSON.parse(await fs.readFile(`${file}.daily-audit.json`, 'utf8')); }
+  catch (error) { if (error.code === 'ENOENT') return {}; throw error; }
+}
+async function writeAuditCursor(file, value) {
+  const path = `${file}.daily-audit.json`;
+  const temp = `${path}.${process.pid}.tmp`;
+  await fs.writeFile(temp, JSON.stringify(value, null, 2));
+  await fs.rename(temp, path);
+}
+
 export function getLastRun() {
   return lastRun;
 }
@@ -97,6 +110,7 @@ export async function runImport(config, options = {}) {
 
     // v3.30 discovery-source tracking for historical-first batching.
     const priority30DayNumbers = new Set();
+    const priorityAuditNumbers = new Set();
     const priorityNewestNumbers = new Set();
     const priorityBacklogNumbers = new Set();
 
@@ -228,6 +242,64 @@ export async function runImport(config, options = {}) {
         );
       }
 
+      // Pass 3a: independent daily audit. Calendar-day windows keep pagination
+      // bounded and recheck dates even when the rolling 30-day cursor shifts.
+      if (config.dailyAuditEnabled) {
+        const now = new Date();
+        const today = now.toISOString().slice(0, 10);
+        const audit = await readAuditCursor(config.stateFile);
+        const days = Math.max(1, Number(config.reconcile30DayDays || 30));
+        const offset = Number.isInteger(audit.dayOffset) && audit.dayOffset >= 0 && audit.dayOffset < days
+          ? audit.dayOffset : days - 1;
+        const day = new Date(Date.parse(`${today}T00:00:00.000Z`) - offset * 86400000);
+        const start = day.toISOString();
+        const end = new Date(day.getTime() + 86400000 - 1).toISOString();
+        const page = audit.day === start.slice(0, 10) ? Math.max(1, Number(audit.page || 1)) : 1;
+        let lastPage = page;
+        let totalPages = page;
+        const auditOrders = await listCandidateOrders(config, {
+          startPage: page,
+          pagesToScan: config.dailyAuditPagesPerRun,
+          orderDateStart: start,
+          orderDateEnd: end,
+          sortDir: 'ASC',
+          scanLabel: 'DAILY AUDIT',
+          onPage: ({page: p, result}) => {
+            lastPage = p;
+            totalPages = Math.max(1, Number(result?.pages || 1));
+          }
+        });
+        const accounted = await loadReconcile30DayResolved(config.stateFile);
+        const missing = groupOrders(auditOrders).filter(group => {
+          const current = state.orders?.[group.orderNumber];
+          return !accounted?.[group.orderNumber] &&
+            !['submitted', 'shipped'].includes(String(current?.status || ''));
+        });
+        const selected = missing.slice(0, config.dailyAuditBatchSize);
+        const selectedNumbers = new Set(selected.map(group => group.orderNumber));
+        selectedNumbers.forEach(number => priorityAuditNumbers.add(number));
+        orders.push(...auditOrders.filter(order => selectedNumbers.has(String(order.orderNumber || order.orderId))));
+        const drained = missing.length <= config.dailyAuditBatchSize;
+        const nextPage = drained ? lastPage + 1 : page;
+        const nextDay = nextPage > totalPages;
+        const nextOffset = nextDay ? (offset === 0 ? days - 1 : offset - 1) : offset;
+        await writeAuditCursor(config.stateFile, {
+          dayOffset: nextOffset,
+          day: nextDay ? null : start.slice(0, 10),
+          page: nextDay ? 1 : nextPage,
+          lastAudit: new Date().toISOString(),
+          lastDay: start.slice(0, 10),
+          lastUnresolved: missing.length,
+          lastSelected: selected.length,
+          lastMissingNumbers: missing.map(group => group.orderNumber).slice(0, 100)
+        });
+        output.dailyAudit = {day: start.slice(0, 10), page, lastPage, missing: missing.length,
+          selected: selected.length, nextDayOffset: nextOffset, nextPage: nextDay ? 1 : nextPage};
+        console.log(`[DAILY AUDIT] ${start.slice(0, 10)} pages ${page}-${lastPage}: ` +
+          `${missing.length} not accounted; selected ${selected.length}; ` +
+          `next ${nextDay ? 'day' : 'page'} ${nextDay ? nextOffset : nextPage}.`);
+      }
+
       // Pass 3: independent 30-day reconciliation. This deliberately uses an
       // order-date window instead of the general Awaiting Shipment page cursor.
       // It walks the entire 30-day result set over successive runs and feeds
@@ -349,22 +421,25 @@ export async function runImport(config, options = {}) {
       // v3.31: historical recovery gets first claim on its own batch. An order
       // discovered by both NEWEST and 30-DAY is counted/processed as 30-DAY,
       // so today's scan can no longer steal historical recovery capacity.
+      const audit = unresolved.filter(group => priorityAuditNumbers.has(group.orderNumber))
+        .slice(0, config.dailyAuditBatchSize);
+      const auditNumbers = new Set(audit.map(group => group.orderNumber));
       const reconcile = unresolved
-        .filter(group => priority30DayNumbers.has(group.orderNumber))
+        .filter(group => priority30DayNumbers.has(group.orderNumber) && !auditNumbers.has(group.orderNumber))
         .slice(0, reconcileBatchSize);
       const reconcileNumbers = new Set(reconcile.map(group => group.orderNumber));
 
       const newest = unresolved
-        .filter(group => priorityNewestNumbers.has(group.orderNumber) && !reconcileNumbers.has(group.orderNumber))
+        .filter(group => priorityNewestNumbers.has(group.orderNumber) && !reconcileNumbers.has(group.orderNumber) && !auditNumbers.has(group.orderNumber))
         .slice(0, newestBatchSize);
       const newestNumbers = new Set(newest.map(group => group.orderNumber));
 
       const backlog = unresolved
         .filter(group => priorityBacklogNumbers.has(group.orderNumber) &&
-          !reconcileNumbers.has(group.orderNumber) && !newestNumbers.has(group.orderNumber))
+          !reconcileNumbers.has(group.orderNumber) && !newestNumbers.has(group.orderNumber) && !auditNumbers.has(group.orderNumber))
         .slice(0, backlogBatchSize);
 
-      groups = [...reconcile, ...newest, ...backlog];
+      groups = [...audit, ...reconcile, ...newest, ...backlog];
 
       output.catchupUnresolvedVisible = unresolved.length;
       output.catchupBatchSelected = groups.length;
@@ -372,7 +447,7 @@ export async function runImport(config, options = {}) {
       console.log(
         `[CATCH-UP] ${unresolved.length} unresolved eligible order(s) visible; ` +
         `processing ${groups.length} this run ` +
-        `(${reconcile.length} 30-day reconcile FIRST + ${newest.length} newest + ${backlog.length} backlog).`
+        `(${audit.length} daily audit + ${reconcile.length} 30-day reconcile + ${newest.length} newest + ${backlog.length} backlog).`
       );
     }
 
