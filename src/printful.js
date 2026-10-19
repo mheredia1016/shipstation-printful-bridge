@@ -11,63 +11,128 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function retryDelayMs(response, attempt) {
-  const retryAfter = response.headers.get('retry-after');
+// Printful's allowances are per store, over a rolling 60-second window.
+// This queue is shared by all requests in this Node process, including webhook traffic.
+const printfulBuckets = new Map();
+let printfulQueue = Promise.resolve();
+let printfulCooldownUntil = 0;
+let lastRateLogAt = 0;
 
-  if (retryAfter) {
-    const seconds = Number(retryAfter);
-    if (Number.isFinite(seconds)) return Math.max(1000, seconds * 1000);
-
-    const date = Date.parse(retryAfter);
-    if (!Number.isNaN(date)) return Math.max(1000, date - Date.now());
+function printfulCategory(path, method) {
+  const clean = String(path).split('?')[0];
+  if (/mockup-generator/i.test(clean)) return 'mockup';
+  if (/^(POST|PUT|PATCH|DELETE)$/i.test(method) &&
+      (/^\/store\/products(?:\/|$)/i.test(clean) || /^\/products(?:\/|$)/i.test(clean))) {
+    return 'product-write';
   }
+  return 'general';
+}
 
-  // 2s, 4s, 8s, 16s, 30s, 30s...
-  return Math.min(30000, 2000 * (2 ** attempt));
+function printfulWaitMs(response, attempt) {
+  const after = response.headers.get('retry-after');
+  if (after) {
+    const seconds = Number(after);
+    if (Number.isFinite(seconds)) return Math.max(1000, Math.ceil(seconds * 1000));
+    const date = Date.parse(after);
+    if (Number.isFinite(date)) return Math.max(1000, date - Date.now());
+  }
+  const reset = Number(response.headers.get('x-ratelimit-reset'));
+  // Printful documents Reset as seconds remaining, NOT an epoch timestamp.
+  if (Number.isFinite(reset) && reset >= 0) return Math.max(1000, Math.ceil(reset * 1000));
+  return Math.min(60000, 2000 * (2 ** attempt));
+}
+
+function pacePrintful(config, category) {
+  // Serialize only reservations, not the HTTP calls themselves.
+  const prior = printfulQueue;
+  let release;
+  printfulQueue = new Promise(resolve => { release = resolve; });
+  return prior.then(() => {
+    const store = String(config.printfulStoreId || 'default');
+    const now = Date.now();
+    const configuredGeneral = Number(config.printfulGeneralRpm || 480);
+    const configuredHeavy = Number(config.printfulHeavyRpm || 160);
+    const generalLimit = Math.max(1, Math.min(600, configuredGeneral));
+    const heavyLimit = Math.max(1, Math.min(200, configuredHeavy));
+    const limits = [['general', generalLimit]];
+    if (category !== 'general') limits.push([category, heavyLimit]);
+    let scheduled = Math.max(now, printfulCooldownUntil);
+    for (const [bucketName, limit] of limits) {
+      const key = `${store}:${bucketName}`;
+      const timestamps = printfulBuckets.get(key) || [];
+      while (timestamps.length && timestamps[0] <= scheduled - 60000) timestamps.shift();
+      if (timestamps.length >= limit) {
+        scheduled = Math.max(scheduled, timestamps[timestamps.length - limit] + 60001);
+      }
+    }
+    // Recheck at the final scheduled instant after all buckets have been considered.
+    for (const [bucketName, limit] of limits) {
+      const key = `${store}:${bucketName}`;
+      const timestamps = printfulBuckets.get(key) || [];
+      while (timestamps.length && timestamps[0] <= scheduled - 60000) timestamps.shift();
+      if (timestamps.length >= limit) scheduled = Math.max(scheduled, timestamps[timestamps.length - limit] + 60001);
+    }
+    for (const [bucketName] of limits) {
+      const key = `${store}:${bucketName}`;
+      const timestamps = printfulBuckets.get(key) || [];
+      timestamps.push(scheduled);
+      printfulBuckets.set(key, timestamps);
+    }
+    release();
+    return Math.max(0, scheduled - now);
+  }, error => { release(); throw error; });
 }
 
 async function request(path, config, options = {}) {
   const maxRetries = Math.max(1, Number(config.apiMaxRetries || 6));
-
+  const method = String(options.method || 'GET').toUpperCase();
+  const category = printfulCategory(path, method);
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    const wait = await pacePrintful(config, category);
+    if (wait > 0) await sleep(wait);
+    // A concurrent 429 may have imposed a cooldown after this call reserved its slot.
+    if (Date.now() < printfulCooldownUntil) await sleep(printfulCooldownUntil - Date.now());
     const response = await fetch(`${BASE_URL}${path}`, {
       ...options,
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
         Authorization: `Bearer ${config.printfulToken}`,
-        ...(config.printfulStoreId
-          ? { 'X-PF-Store-ID': String(config.printfulStoreId) }
-          : {}),
+        ...(config.printfulStoreId ? { 'X-PF-Store-ID': String(config.printfulStoreId) } : {}),
         ...(options.headers || {})
       }
     });
-
-    const text = await response.text();
-    let body;
-    try {
-      body = text ? JSON.parse(text) : {};
-    } catch {
-      body = { raw: text };
+    const remaining = response.headers.get('x-ratelimit-remaining');
+    const limit = response.headers.get('x-ratelimit-limit');
+    const reset = response.headers.get('x-ratelimit-reset');
+    const now = Date.now();
+    if (remaining !== null && (now - lastRateLogAt >= 60000 || Number(remaining) <= 30)) {
+      console.log(`[PRINTFUL RATE] ${category} ${method} ${path.split('?')[0]} | limit=${limit ?? '?'} remaining=${remaining} reset=${reset ?? '?'}s`);
+      lastRateLogAt = now;
     }
-
+    const raw = await response.text();
+    let body;
+    try { body = raw ? JSON.parse(raw) : {}; }
+    catch { body = { raw }; }
     if (response.status === 429 && attempt < maxRetries) {
-      const delay = retryDelayMs(response, attempt);
-      console.warn(
-        `Printful 429 on ${path}. Retrying in ${Math.round(delay / 1000)}s ` +
-        `(attempt ${attempt + 1}/${maxRetries}).`
-      );
+      const delay = printfulWaitMs(response, attempt) + Math.floor(Math.random() * 1000);
+      printfulCooldownUntil = Math.max(printfulCooldownUntil, Date.now() + delay);
+      console.warn(`[PRINTFUL 429] ${method} ${path} | retry in ${Math.ceil(delay / 1000)}s (attempt ${attempt + 1}/${maxRetries}); remaining=${remaining ?? '?'} reset=${reset ?? '?'}s`);
       await sleep(delay);
       continue;
     }
-
     if (!response.ok || (body.code && Number(body.code) >= 400)) {
-      throw new Error(`Printful ${response.status}: ${JSON.stringify(body).slice(0, 1600)}`);
+      // Do not expose a Mexico recipient's RFC/CURP if Printful echoes it
+      // in a validation error. Keep the HTTP status and a sanitized message.
+      let detail = JSON.stringify(body).slice(0, 1600);
+      try {
+        const sentTaxNumber = JSON.parse(options.body || '{}')?.recipient?.tax_number;
+        if (sentTaxNumber) detail = detail.split(String(sentTaxNumber)).join('[REDACTED]');
+      } catch {}
+      throw new Error(`Printful ${response.status}: ${detail}`);
     }
-
     return body;
   }
-
   throw new Error(`Printful request failed after ${maxRetries} retries: ${path}`);
 }
 

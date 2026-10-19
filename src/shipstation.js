@@ -308,3 +308,51 @@ export async function findOrdersByExactOrderNumber(orderNumber, config) {
     String(order.orderNumber || '').trim() === wanted
   );
 }
+
+// v3.35: ShipStation V2 exposes recipient tax identifiers which V1 omits.
+// Reuse the ShipStation request queue to avoid concurrent API bursts.
+export async function getMexicoRecipientTaxId(orderNumber, config) {
+  if (!config.shipstationV2ApiKey) {
+    throw new Error('Mexico order requires SHIPSTATION_V2_API_KEY in Railway.');
+  }
+  const path = `/v2/shipments?shipment_number=${encodeURIComponent(String(orderNumber))}&page_size=25`;
+  const maxRetries = Math.max(1, Number(config.apiMaxRetries || 6));
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const response = await withShipstationThrottle(config, () =>
+      fetch(`https://api.shipstation.com${path}`, {
+        headers: {
+          'API-Key': config.shipstationV2ApiKey,
+          Accept: 'application/json'
+        }
+      })
+    );
+    if (response.status === 429 && attempt < maxRetries) {
+      const delay = retryDelayMs(response, attempt);
+      shipstationCooldownUntil = Math.max(shipstationCooldownUntil, Date.now() + delay);
+      console.warn(`[MEXICO TAX] ShipStation V2 rate limited; retrying after ${Math.ceil(delay / 1000)}s.`);
+      continue;
+    }
+    if (!response.ok) {
+      // Never print response bodies: they could contain recipient PII.
+      throw new Error(`ShipStation V2 tax lookup failed (HTTP ${response.status}).`);
+    }
+    const body = await response.json();
+    const matches = (body.shipments || []).filter(shipment =>
+      String(shipment.shipment_number || '') === String(orderNumber) &&
+      String(shipment.ship_to?.country_code || '').toUpperCase() === 'MX'
+    );
+    if (matches.length !== 1) {
+      throw new Error(`Mexico recipient tax lookup returned ${matches.length} matching shipments for ${orderNumber}; manual review required.`);
+    }
+    const ids = (matches[0].tax_identifiers || []).filter(id =>
+      String(id.taxable_entity_type || '').toLowerCase() === 'recipient' &&
+      ['tin', 'rfc', 'curp'].includes(String(id.identifier_type || '').toLowerCase()) &&
+      String(id.value || '').trim()
+    );
+    if (ids.length !== 1) {
+      throw new Error(`Mexico order ${orderNumber} has ${ids.length} usable recipient tax identifiers; manual review required.`);
+    }
+    return String(ids[0].value).trim();
+  }
+  throw new Error('ShipStation V2 tax lookup exhausted retries.');
+}

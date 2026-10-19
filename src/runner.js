@@ -3,7 +3,8 @@ import {
   listCandidateOrders,
   markOrderShipped,
   resolveCarrierCode,
-  findOrdersByExactOrderNumber
+  findOrdersByExactOrderNumber,
+  getMexicoRecipientTaxId
 } from './shipstation.js';
 import {
   buildPrintfulOrder,
@@ -468,11 +469,25 @@ export async function runImport(config, options = {}) {
       try {
         const payload = await buildPrintfulOrder(group, config);
 
+        // Only Printful-eligible orders reach this loop. Retrieve Mexico's
+        // recipient RFC/CURP via ShipStation V2 before creating the order.
+        // A failed lookup stops this order; other orders continue normally.
+        if (String(payload.recipient?.country_code || '').toUpperCase() === 'MX') {
+          payload.recipient.tax_number = await getMexicoRecipientTaxId(group.orderNumber, config);
+          console.log(`[MEXICO TAX] ${group.orderNumber}: recipient tax ID retrieved (value redacted).`);
+        }
+
         if (config.printfulMode === 'preview') {
           output.orders.push({
             orderNumber: group.orderNumber,
             status: 'preview',
-            payload
+            payload: {
+              ...payload,
+              recipient: {
+                ...payload.recipient,
+                ...(payload.recipient?.tax_number ? { tax_number: '[REDACTED]' } : {})
+              }
+            }
           });
           continue;
         }

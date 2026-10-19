@@ -1,3 +1,26 @@
+# v3.35 Mexico RFC/CURP pass-through
+
+For eligible Printful orders shipping to Mexico, ShipStation V2 is queried by exact shipment number to retrieve the recipient's TIN, which is sent to Printful as `recipient.tax_number`. A missing or ambiguous tax ID blocks that order and reports an error without exposing the value. Other destinations and existing Custom Field 1 routing remain unchanged.
+
+**Railway variable required for Mexico:** `SHIPSTATION_V2_API_KEY` (V2 API key). Keep all existing variables and persistent `/data` volume. No Shopify API token is needed.
+
+**Verification:** Use a real Printful-eligible Mexico order (not the AEW204773 test order with blank Custom Field 1). Check `[MEXICO TAX] ... retrieved (value redacted)` and verify Printful received the tax number. Avoid posting full API responses containing RFC/CURP.
+
+---
+
+## v3.34 — Printful rate-limit readiness (November 1, 2026)
+
+Printful API calls are now paced per store using a process-wide rolling-window reservation queue. Default conservative budgets are 480 general requests/minute and 160 mockup/product-write requests/minute, leaving headroom under the announced 600/200 allowances. All requests count toward the general budget. Printful `X-RateLimit-*` headers are logged periodically; HTTP 429 honors `Retry-After` (seconds or HTTP date), falls back to `X-RateLimit-Reset` (seconds), and retries with jitter. A shared cooldown helps concurrent calls back off.
+
+Optional Railway environment variables:
+
+```env
+PRINTFUL_GENERAL_RPM=480
+PRINTFUL_HEAVY_RPM=160
+```
+
+Keep `SHIPSTATION_PARTNER_KEY` and all other existing variables unchanged. This limiter coordinates requests within **one** Railway process, not other apps or replicas using the same Printful store. Monitor `[PRINTFUL RATE]` and `[PRINTFUL 429]` in logs. The 200/minute product-write bucket applies to `/store/products` and `/products` writes; mockup-generator endpoints have a separate 200/minute bucket. Order create/confirm endpoints count toward general requests. Existing Printful order external IDs and duplicate guard are unchanged.
+
 # ShipStation → Printful Bridge v3.10
 
 Production workflow:
