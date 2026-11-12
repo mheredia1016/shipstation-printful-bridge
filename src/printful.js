@@ -811,22 +811,34 @@ async function scanAttachedStoreArtwork(config, neededSkus = []) {
 
 
 
+// Match the actual production file on the selected synced variant. Printful
+// Product Creator names files like aew6232__1_.png, not only aew6232.png.
+// Only accept high-resolution production placements, never previews/mockups.
 async function verifyMatchedSyncVariantArtwork(automatic, wantedSkus, config) {
-  const wanted = new Set(wantedSkus.map(normalizeArtworkSku).filter(Boolean));
-  if (!wanted.size || !automatic?.productId || !automatic?.syncVariantId) return null;
+  const wanted = [...new Set(wantedSkus.map(normalizeArtworkSku).filter(Boolean))];
+  if (!wanted.length || !automatic?.productId || !automatic?.syncVariantId) return null;
 
   const details = await getCachedStoreProduct(automatic.productId, config);
   const variants = Array.isArray(details?.sync_variants) ? details.sync_variants : [];
   const matchedVariant = variants.find(variant => Number(variant.id) === Number(automatic.syncVariantId));
-  if (!matchedVariant) return null;
+  if (!matchedVariant || matchedVariant.synced !== true || matchedVariant.is_ignored === true ||
+      (matchedVariant.availability_status && matchedVariant.availability_status !== 'active')) return null;
 
   for (const file of matchedVariant.files || []) {
-    const filenameSku = normalizeArtworkSku(file.filename);
-    if (!wanted.has(filenameSku)) continue;
-    if (!file.id || (file.status && file.status !== 'ok')) continue;
-    return { sku: filenameSku, fileId: Number(file.id) };
+    const filename = String(file.filename || '').toLowerCase();
+    const productionPlacement = /^(front|back|sleeve|label|inside|outside|embroidery)/i.test(String(file.type || ''));
+    if (!productionPlacement || !file.id || file.status !== 'ok' || file.visible === false) continue;
+    // Guard against mistaking a small mockup for print-ready production art.
+    if (Number(file.width) < 2500 || Number(file.height) < 2500 || Number(file.dpi) < 150) continue;
+    const matchedSku = wanted.find(sku => {
+      const escaped = sku.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`^${escaped}(?:\\.png|__|[-_][0-9]+(?:[-_.]|$))`, 'i').test(filename);
+    });
+    if (!matchedSku) continue;
+    console.log(`[SYNCED PRODUCTION FILE VERIFIED] ${matchedSku} | sync_variant_id=${automatic.syncVariantId} | file_id=${file.id} | placement=${file.type}`);
+    return { sku: matchedSku, fileId: Number(file.id) };
   }
-
+  console.warn(`[SYNCED PRODUCTION FILE NOT VERIFIED] ${automatic.matchedSku || wanted[0]} | sync_variant_id=${automatic.syncVariantId}`);
   return null;
 }
 

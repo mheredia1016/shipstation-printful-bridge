@@ -560,7 +560,27 @@ export async function runImport(config, options = {}) {
           } else {
             const currentStatus = String(printfulOrder?.status || '').toLowerCase();
 
-            if (['draft', 'failed'].includes(currentStatus)) {
+            // A newly verified payload does not repair an existing Printful draft.
+            // Never confirm stale catalog/artwork items until /api/reprocess-order
+            // has updated that same draft and its synced variant IDs match.
+            const actualItems = Array.isArray(printfulOrder?.items) ? printfulOrder.items : [];
+            const existingProductionMatches =
+              actualItems.length === items.length &&
+              items.every((expected, index) => {
+                const actual = actualItems[index];
+                if (!actual || Number(actual.quantity) !== Number(expected.quantity)) return false;
+                if (Number(expected.sync_variant_id) > 0) {
+                  return Number(actual.sync_variant_id) === Number(expected.sync_variant_id);
+                }
+                return Number(actual.variant_id) === Number(expected.variant_id) &&
+                  (expected.files || []).every(file =>
+                    (actual.files || []).some(actualFile => Number(actualFile.id) === Number(file.id))
+                  );
+              });
+            if (['draft', 'failed'].includes(currentStatus) && !existingProductionMatches) {
+              autoConfirmSkippedReason = 'existing_draft_production_mismatch';
+              console.warn(`[AUTO CONFIRM SKIP] ${group.orderNumber} | Existing Printful draft items do not match verified payload. Use /api/reprocess-order to update the draft before confirmation.`);
+            } else if (['draft', 'failed'].includes(currentStatus)) {
               console.log(
                 `[AUTO CONFIRM] ${group.orderNumber} | ` +
                 `${items.length}/${items.length} item(s) are production-ready ` +
