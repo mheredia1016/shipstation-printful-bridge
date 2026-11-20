@@ -298,22 +298,30 @@ async function listAllStoreProducts(config, { force = false } = {}) {
 
   const products = [];
   let offset = 0;
-  const limit = 100;
+  const requestedLimit = 100;
+  const seenOffsets = new Set();
 
   while (true) {
-    const result = await request(
-      `/store/products?limit=${limit}&offset=${offset}`,
+    if (seenOffsets.has(offset)) throw new Error(`Printful catalog pagination repeated offset ${offset}.`);
+    seenOffsets.add(offset);
+    const body = await request(
+      `/store/products?limit=${requestedLimit}&offset=${offset}`,
       config
     );
-
-    const page = Array.isArray(result?.result) ? result.result : [];
-
+    const page = Array.isArray(body?.result) ? body.result : [];
     products.push(...page);
-
-    if (page.length < limit) break;
-
-    offset += limit;
+    const total = Number(body?.paging?.total);
+    const reportedOffset = Number(body?.paging?.offset);
+    // Printful may cap the requested 100 at 20. Never assume requestedLimit
+    // is the actual page size, or products after the first page disappear.
+    const currentOffset = Number.isFinite(reportedOffset) && reportedOffset >= 0
+      ? reportedOffset : offset;
+    const nextOffset = currentOffset + page.length;
+    if (!page.length || (Number.isFinite(total) && total >= 0 && nextOffset >= total)) break;
+    if (nextOffset <= offset) throw new Error('Printful catalog pagination did not advance.');
+    offset = nextOffset;
   }
+  console.log(`[SYNCED PRODUCT CATALOG] Loaded ${products.length} Printful products across ${seenOffsets.size} pages.`);
 
   storeProductsCache = {
     products,
@@ -361,6 +369,25 @@ async function findStoreProductBySkuPrefix(item, config) {
   if (wantedSkus.every(sku => importRunNegativeSkuCache.has(sku))) return null;
 
   async function searchProducts(force) {
+    // Search the Printful sync catalog by old SKU first. This endpoint was
+    // verified against aew6154 and avoids dependence on product ordering.
+    for (const wantedSku of wantedSkus) {
+      const direct = await request(
+        `/sync/products?search=${encodeURIComponent(wantedSku)}`,
+        config
+      );
+      const directProducts = Array.isArray(direct?.result) ? direct.result : [];
+      const exact = directProducts.filter(product => productSkuPrefix(product) === wantedSku);
+      if (exact.length > 1) throw new Error(`Multiple Printful synced products use SKU prefix ${wantedSku}.`);
+      if (exact.length === 1) {
+        console.log(`[SYNCED PRODUCT DIRECT SEARCH] ${wantedSku} -> product_id=${exact[0].id}`);
+        return {
+          product: await getCachedStoreProduct(exact[0].id, config),
+          matchedSku: wantedSku,
+          matchedBy: wantedSku === oldSku ? 'old_sku' : 'current_sku'
+        };
+      }
+    }
     const products = await listAllStoreProducts(config, { force });
 
     for (const wantedSku of wantedSkus) {
@@ -761,14 +788,14 @@ async function scanAttachedStoreArtwork(config, neededSkus = []) {
     return map;
   }
 
-  for (
-    let page = 0;
-    page < config.printfulProductScanMaxPages && needed.size;
-    page += 1
-  ) {
-    const offset = page * 100;
+  let offset = 0;
+  for (let page = 0; page < config.printfulProductScanMaxPages && needed.size; page += 1) {
     const body = await listStoreProductsPage(config, offset);
     const products = Array.isArray(body.result) ? body.result : [];
+    if (!products.length) break;
+    const pageOffset = Number.isFinite(Number(body?.paging?.offset))
+      ? Number(body.paging.offset) : offset;
+    const nextOffset = pageOffset + products.length;
 
     for (const product of products) {
       if (!needed.size) break;
@@ -795,9 +822,8 @@ async function scanAttachedStoreArtwork(config, neededSkus = []) {
     }
 
     const total = Number(body?.paging?.total || 0);
-    if (products.length < 100 || (total && offset + products.length >= total)) {
-      break;
-    }
+    if (nextOffset <= offset || (total && nextOffset >= total)) break;
+    offset = nextOffset;
   }
 
   await saveArtworkMap(config.artworkMapFile, map);
