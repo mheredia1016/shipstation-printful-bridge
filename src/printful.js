@@ -854,8 +854,11 @@ async function verifyMatchedSyncVariantArtwork(automatic, wantedSkus, config) {
     const filename = String(file.filename || '').toLowerCase();
     const productionPlacement = /^(front|back|sleeve|label|inside|outside|embroidery)/i.test(String(file.type || ''));
     if (!productionPlacement || !file.id || file.status !== 'ok' || file.visible === false) continue;
-    // Guard against mistaking a small mockup for print-ready production art.
-    if (Number(file.width) < 2500 || Number(file.height) < 2500 || Number(file.dpi) < 150) continue;
+    // A synced variant's own saved production placement is authoritative.
+    // Small-format artwork (for example 1500x900 at 300 DPI) may be
+    // intentionally scaled and positioned in Printful Product Creator.
+    // Never infer a saved placement from dimensions; require a production
+    // placement, valid file, active synced variant, and exact SKU filename.
     const matchedSku = wanted.find(sku => {
       const escaped = sku.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       return new RegExp(`^${escaped}(?:\\.png|__|[-_][0-9]+(?:[-_.]|$))`, 'i').test(filename);
@@ -1171,63 +1174,16 @@ export async function buildPrintfulOrder(group, config) {
             };
           }
 
-          // Safe fallback: if the matched sync variant itself cannot be
-          // verified, retain the v3.27 catalog-variant + verified artwork path.
-          // This controls the production file but does not inherit placement.
-          const artworkMap = await loadArtworkMap(config.artworkMapFile);
-          let mappedArtworkFileId =
-            getArtworkFileId(artworkMap, oldSku) ||
-            getArtworkFileId(artworkMap, currentSku);
-
-          if (!mappedArtworkFileId) {
-            const discovered = await discoverArtworkFromMatchedProduct(
-              automatic,
-              [oldSku, currentSku],
-              config
-            );
-            mappedArtworkFileId = discovered?.fileId || null;
-          }
-
-          if (!mappedArtworkFileId) {
-            throw new Error(
-              `SYNCED_ARTWORK_REQUIRED: ${oldSku || currentSku || '(no SKU)'} ` +
-              `matched ${automatic.productName}, but no exact production artwork filename ` +
-              `was found on that synced Printful product and no verified artwork-map entry exists. ` +
-              `Refusing inherited/mockup files.`
-            );
-          }
-
-          const visibleSku = chooseVisibleSku(item, config);
-          const result = {
-            external_id: itemReference(item, index),
-            variant_id: automatic.catalogVariantId,
-            quantity: Math.max(1, Number(item.quantity || 1)),
-            name: originalTitle,
-            sku: visibleSku,
-            files: [
-              {
-                id: Number(mappedArtworkFileId),
-                type: 'default'
-              }
-            ]
-          };
-
-          // Internal marker for runner.js. Non-enumerable means JSON.stringify
-          // never sends this private flag to Printful.
-          Object.defineProperty(result, '_bridgeProductionReady', {
-            value: true,
-            enumerable: false
-          });
-
-          console.log(
-            `[SYNCED PRODUCT + VERIFIED ARTWORK] ${originalOrderNumber} | ` +
-            `${automatic.matchedSku} (${automatic.matchedBy}) -> ${automatic.productName} | ` +
-            `${automatic.color} / ${automatic.size} | ` +
-            `catalog_variant_id=${automatic.catalogVariantId} | ` +
-            `artwork_file_id=${Number(mappedArtworkFileId)}`
+          // A synced product exists but its saved production configuration
+          // cannot be verified. Do not create a catalog item with a default
+          // placement: it can change the scale/position and reach fulfillment.
+          throw new Error(
+            `SYNCED_ARTWORK_REQUIRED: ${oldSku || currentSku || '(no SKU)'} ` +
+            `matched ${automatic.productName} (${automatic.color} / ${automatic.size}), ` +
+            `but the selected synced variant ${automatic.syncVariantId} has no ` +
+            `verified saved production file matching the SKU. ` +
+            `Order creation stopped; refusing catalog/default placement fallback.`
           );
-
-          return result;
         }
       } catch (error) {
         if (String(error.message || '').startsWith('SYNCED_ARTWORK_REQUIRED:')) {
