@@ -837,9 +837,11 @@ async function scanAttachedStoreArtwork(config, neededSkus = []) {
 
 
 
-// Match the actual production file on the selected synced variant. Printful
-// Product Creator names files like aew6232__1_.png, not only aew6232.png.
-// Only accept high-resolution production placements, never previews/mockups.
+// Verify the complete saved production configuration on the exact synced variant.
+// A valid Printful design can contain a `default` front file plus additional
+// placements (back_large, sleeves, etc). `default` is not a preview and must
+// not be discarded. Returning sync_variant_id alone makes Printful use the
+// complete saved configuration, rather than rebuilding files individually.
 async function verifyMatchedSyncVariantArtwork(automatic, wantedSkus, config) {
   const wanted = [...new Set(wantedSkus.map(normalizeArtworkSku).filter(Boolean))];
   if (!wanted.length || !automatic?.productId || !automatic?.syncVariantId) return null;
@@ -850,25 +852,35 @@ async function verifyMatchedSyncVariantArtwork(automatic, wantedSkus, config) {
   if (!matchedVariant || matchedVariant.synced !== true || matchedVariant.is_ignored === true ||
       (matchedVariant.availability_status && matchedVariant.availability_status !== 'active')) return null;
 
-  for (const file of matchedVariant.files || []) {
-    const filename = String(file.filename || '').toLowerCase();
-    const productionPlacement = /^(front|back|sleeve|label|inside|outside|embroidery)/i.test(String(file.type || ''));
-    if (!productionPlacement || !file.id || file.status !== 'ok' || file.visible === false) continue;
-    // A synced variant's own saved production placement is authoritative.
-    // Small-format artwork (for example 1500x900 at 300 DPI) may be
-    // intentionally scaled and positioned in Printful Product Creator.
-    // Never infer a saved placement from dimensions; require a production
-    // placement, valid file, active synced variant, and exact SKU filename.
-    const matchedSku = wanted.find(sku => {
-      const escaped = sku.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      return new RegExp(`^${escaped}(?:\\.png|__|[-_][0-9]+(?:[-_.]|$))`, 'i').test(filename);
-    });
-    if (!matchedSku) continue;
-    console.log(`[SYNCED PRODUCTION FILE VERIFIED] ${matchedSku} | sync_variant_id=${automatic.syncVariantId} | file_id=${file.id} | placement=${file.type}`);
-    return { sku: matchedSku, fileId: Number(file.id) };
+  const productionFiles = (matchedVariant.files || []).filter(file =>
+    String(file.type || '').toLowerCase() !== 'preview'
+  );
+  // All saved production placements must have a usable Printful file ID.
+  // Never silently drop the back print or other placements.
+  if (!productionFiles.length || productionFiles.some(file =>
+    !Number(file.id) || file.status !== 'ok' || file.visible === false ||
+    !(/^(default|front|back|sleeve|label|inside|outside|embroidery)/i.test(String(file.type || '')))
+  )) {
+    console.warn(`[SYNCED PRODUCTION CONFIG INCOMPLETE] ${automatic.matchedSku || wanted[0]} | sync_variant_id=${automatic.syncVariantId} | production_files=${productionFiles.length}`);
+    return null;
   }
-  console.warn(`[SYNCED PRODUCTION FILE NOT VERIFIED] ${automatic.matchedSku || wanted[0]} | sync_variant_id=${automatic.syncVariantId}`);
-  return null;
+
+  // Verify that at least one saved production file belongs to the requested
+  // SKU. Secondary files may use suffixes such as -BACK, -FRONT, __1_, etc.
+  const matching = productionFiles.find(file => {
+    const filename = String(file.filename || '').toLowerCase();
+    return wanted.some(sku => {
+      const escaped = sku.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`^${escaped}(?:\\.png|__|[-_][0-9]+(?:[-_.]|$)|[-_](?:front|back|sleeve)(?:[-_.]|$))`, 'i').test(filename);
+    });
+  });
+  if (!matching) {
+    console.warn(`[SYNCED PRODUCTION FILE NOT VERIFIED] ${automatic.matchedSku || wanted[0]} | sync_variant_id=${automatic.syncVariantId}`);
+    return null;
+  }
+
+  console.log(`[SYNCED PRODUCTION CONFIG VERIFIED] ${automatic.matchedSku || wanted[0]} | sync_variant_id=${automatic.syncVariantId} | placements=${productionFiles.map(f => `${f.type}:${f.id}`).join(',')}`);
+  return { sku: automatic.matchedSku || wanted[0], fileId: Number(matching.id), placements: productionFiles.map(f => f.type) };
 }
 
 async function discoverArtworkFromMatchedProduct(automatic, wantedSkus, config) {
@@ -1164,7 +1176,7 @@ export async function buildPrintfulOrder(group, config) {
               `[SYNCED VARIANT + VERIFIED ARTWORK + SAVED PLACEMENT] ${originalOrderNumber} | ` +
               `${automatic.matchedSku} (${automatic.matchedBy}) -> ${automatic.productName} | ` +
               `${automatic.color} / ${automatic.size} | sync_variant_id=${automatic.syncVariantId} | ` +
-              `artwork_file_id=${verifiedSyncArtwork.fileId}`
+              `artwork_file_id=${verifiedSyncArtwork.fileId} | placements=${verifiedSyncArtwork.placements.join(',')}`
             );
 
             return {
